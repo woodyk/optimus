@@ -13,6 +13,7 @@ use POSIX;
 use Socket;
 use Geo::IP;
 use Config::Tiny;
+use Getopt::Long;
 use Net::Pcap;
 use UUID::Random;
 use Data::Dumper;
@@ -59,7 +60,7 @@ my $displayJson	= $config->{'application'}->{'displayJson'};
 #####################################
 my $elastic	= $config->{'application'}->{'elastic'}; 
 my $esPrefix	= $config->{'application'}->{'esPrefix'}; 
-my $esNodes	= $config->{'application'}->{'esNodes'}; 
+my $esNode	= $config->{'application'}->{'esNode'}; 
 
 #####################################
 # Packet Capture options 
@@ -75,12 +76,10 @@ my $netFilter	= $config->{'application'}->{'netFilter'};
 my $targetNet	= $config->{'application'}->{'targetNet'}; 
 my $sample	= $config->{'application'}->{'sample'}; 
 my $maxPerDest	= $config->{'application'}->{'maxPerDest'}; 
-my $offline	= $config->{'application'}->{'offline'}; 
 my $ip6Enable	= $config->{'application'}->{'ip6Enable'}; 
 my $l2Enable	= $config->{'application'}->{'l2Enable'};
 my $l7Enable	= $config->{'application'}->{'l7Enable'}; 
 my $recType	= $config->{'application'}->{'recType'}; 
-my $pcapFile    = $config->{'application'}->{'pcapFile'}; 
 my $geoip	= $config->{'application'}->{'geoip'}; 
 my $geoipDat	= $config->{'application'}->{'geoipDat'};
 
@@ -90,17 +89,36 @@ my $geoipDat	= $config->{'application'}->{'geoipDat'};
 my $logging     = $config->{'application'}->{'logging'}; 
 my $logFile	= $config->{'application'}->{'logFile'}; 
 
+my $pcapFile;
+
+# Get command line options.
+GetOptions(
+        'interface=s'   => \$interface,
+        'pcap=s'        => \$pcapFile,
+        'json!'         => sub { $displayJson = 1; },
+	'debug!'	=> sub { $debug = 1; },
+	'count=i'	=> \$sample,
+	'help!'		=> \&help,
+	'elastic'	=> sub { $elastic = 1},
+	'server=s'	=> \$esNode,
+);
+
+if ($esNode !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}$/) {
+	print "error: IP address not valid.\n";
+	exit;
+} 
+
 $ENV{TZ} = 'UTC';
 my $hostname = hostname();
 
 #tcp flags: urg, ack, psh, rst, syn, fin, ece, cwr
-my @NetPacketIP = qw( ver hlen flags foffset tos len id ttl proto cksum src_ip dest_ip options data );
-my @NetPacketTCP = qw( src_port dest_port seqnum acknum hlen reserved flags winsize cksum urg options data );
-my @NetPacketICMP = qw( type code cksum data );
-my @NetPacketIGMP = qw( version type len subtype cksum group_addr data );
-my @NetPacketUDP = qw( src_port dest_port len cksum data );
-my @NetPacketEthernet = qw( src_mac dest_mac type data ); 
-my @NetPacketARP = qw( htype proto hlen plen opcode sha spa tha tpa );
+#my @NetPacketIP = qw( ver hlen flags foffset tos len id ttl proto cksum src_ip dest_ip options data );
+#my @NetPacketTCP = qw( src_port dest_port seqnum acknum hlen reserved flags winsize cksum urg options data );
+#my @NetPacketICMP = qw( type code cksum data );
+#my @NetPacketIGMP = qw( version type len subtype cksum group_addr data );
+#my @NetPacketUDP = qw( src_port dest_port len cksum data );
+#my @NetPacketEthernet = qw( src_mac dest_mac type data ); 
+#my @NetPacketARP = qw( htype proto hlen plen opcode sha spa tha tpa );
 
 # Time to declare your items
 my $ref; 				# data container for all the collected samples
@@ -111,7 +129,7 @@ my $cidr;
 my $gi;
 my %oui;
 my $primaryKey;
-chomp($pcapFile);
+my $offline;
 
 if ($logging == 1) {
 	openlog("prime.pl", "ndelay,pid", "local0");
@@ -179,10 +197,13 @@ if ($hwVendor == 1) {
 #####################################
 
 # Check that a file has been given if running in offline mode
-if ($offline == 1) {
+if (defined($pcapFile)) {
 	if (!-e $pcapFile) {
 		print "Unable to find file $pcapFile for processing.\n";
 		exit;
+	} else {
+		$sample = -1;
+		$offline = 1;
 	}
 }
 
@@ -201,7 +222,7 @@ sub output {
 	my $indexname = $esPrefix.$indexstamp;
 
 	if ($elastic == 1) {
-		$e = Search::Elasticsearch->new( nodes => $esNodes );
+		$e = Search::Elasticsearch->new( nodes => $esNode ); 
 
 		unless ($e->indices->exists(index => "$indexname")) {
 			my $result = $e->indices->create(
@@ -468,7 +489,7 @@ sub callout {
 
 	# Only collect N samples perl destination IP;
 	$beanCounter->{$ipAddressForBeanCounter}++;
-	if ($beanCounter->{$ipAddressForBeanCounter} >= $maxPerDest) {
+	if ($maxPerDest > 0 && $beanCounter->{$ipAddressForBeanCounter} >= $maxPerDest) {
 		return;
 	}
 
@@ -566,7 +587,7 @@ sub callout {
 		addTag($primaryKey, 'MULTICAST');
 	}
 
-	$ref->{$primaryKey}->{packets}++;
+	#$ref->{$primaryKey}->{packets}++;
 
 	$ref->{$primaryKey}->{ip}->{dst} = $ipDstIp;
 	$ref->{$primaryKey}->{ip}->{src} = $ipSrcIp;
@@ -1110,3 +1131,32 @@ sub getPats {
 		}
 	}
 }
+
+#####################################
+# help output 
+#####################################
+sub help {
+	print "$0\n";
+	print "\t-i\tInterface to listen to.\n";
+	print "\t-p\tPath to pcap file for reading.\n";
+	print "\t-j\tOuput JSON to STDOUT for each packet.\n";
+	print "\t-d\tOutput debug information to STDOUT.\n";
+	print "\t-c\tNumber of packets to process. Only works when interface is defined.\n";
+	print "\t-e\tEnable elastic search.\n";
+	print "\t-s\tElastic search server address with port. eg: 192.168.1.10:9200\n";
+	print "\t-h\tThis help output.\n";
+	print "\n";
+	print "Examples:\n";
+	print "\tListen to eth0 for 10 packets and output JSON.\n";
+	print "\t$0 -i eth0 -c 10 =j\n";
+	print "\n";
+	print "\tRead from pcap file and output JSON.\n";
+	print "\t$0 -p /path/to/pcap -j\n";
+	print "\n";
+	print "\tListen to eth0 for 1000 packets and inject data to elasticsearch.\n";
+	print "\t$0 -i eth0 -c 1000 -e -s 192.168.0.10:9200\n";
+	print "\n";
+	
+	exit;
+}
+
