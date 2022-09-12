@@ -1,13 +1,8 @@
 #!/usr/bin/perl
-# Optimus packet to profile transform generator 
-# author: woodyk@gmail.com
-#
-# ipv4 traffic distribution generator and indexer
-#
 
 use strict;
 use bytes;
-use lib '/home/flint/src/prime/perl5/lib';
+use lib '../lib/perl5/lib';
 use JSON;
 use POSIX;
 use Socket;
