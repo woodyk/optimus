@@ -6,7 +6,6 @@ requires 'Socket';
 requires 'Geo::IP';
 requires 'Net::Pcap';
 requires 'Config::Tiny';
-requires 'Getopt::Long';
 requires 'UUID::Random';
 requires 'Data::Dumper';
 requires 'Sys::Hostname';

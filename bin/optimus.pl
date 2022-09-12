@@ -7,7 +7,7 @@
 
 use strict;
 use bytes;
-use lib '/home/flint/prime2/lib/perl5/lib';
+use lib '../lib/perl5/lib';
 use JSON;
 use POSIX;
 use Socket;
@@ -20,7 +20,6 @@ use Data::Dumper;
 use Sys::Hostname;
 use Sys::Syslog;
 use LWP::UserAgent;
-use Getopt::Long;
 use Net::IPAddress;
 use Net::CIDR::Lite;
 use NetPacket::IP;
@@ -68,9 +67,8 @@ my $esNode	= $config->{'application'}->{'esNode'};
 my $interface	= $config->{'application'}->{'interface'}; 
 my $hwVendor	= $config->{'application'}->{'hwVendor'}; 
 my $ouiFile	= $config->{'application'}->{'ouiFile'}; 
-my $ouiURL	= $config->{'application'}->{'ouiURL'};
+my $ouiUrl	= $config->{'application'}->{'ouiUrl'};
 my $payload	= $config->{'application'}->{'payload'}; 
-my $offset	= $config->{'application'}->{'offset'}; 
 my $plBits	= $config->{'application'}->{'plBits'}; 
 my $netFilter	= $config->{'application'}->{'netFilter'}; 
 my $targetNet	= $config->{'application'}->{'targetNet'}; 
@@ -87,8 +85,19 @@ my $geoipDat	= $config->{'application'}->{'geoipDat'};
 # Prep and enable logging
 #####################################
 my $logging     = $config->{'application'}->{'logging'}; 
-my $logFile	= $config->{'application'}->{'logFile'}; 
 
+# Time to declare your items
+my $ref; 				# data container for all the collected samples
+my $beanCounter;			# packet counter
+my $e;					# elasticsearch handle
+my $bulk;				# elasticsearch bulk handle
+my $cidr;
+my $gi;
+my %oui;
+my $primaryKey;
+my $offline;
+my $message;
+my $counter;
 my $pcapFile;
 
 # Get command line options.
@@ -101,10 +110,16 @@ GetOptions(
 	'help!'		=> \&help,
 	'elastic'	=> sub { $elastic = 1},
 	'server=s'	=> \$esNode,
+	'logging'	=> sub { $logging = 1},
 );
 
+logIt("started.");
+
 if ($esNode !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}$/) {
-	print "error: IP address not valid.\n";
+	$message = "error: IP address not valid.\n";
+	print "$message";
+	debugOut($message);
+	logIt($message);
 	exit;
 } 
 
@@ -120,22 +135,6 @@ my $hostname = hostname();
 #my @NetPacketEthernet = qw( src_mac dest_mac type data ); 
 #my @NetPacketARP = qw( htype proto hlen plen opcode sha spa tha tpa );
 
-# Time to declare your items
-my $ref; 				# data container for all the collected samples
-my $beanCounter;			# packet counter
-my $e;					# elasticsearch handle
-my $bulk;				# elasticsearch bulk handle
-my $cidr;
-my $gi;
-my %oui;
-my $primaryKey;
-my $offline;
-
-if ($logging == 1) {
-	openlog("prime.pl", "ndelay,pid", "local0");
-	# use VVVVVV for logging
-	#syslog("info|local0", $message); 
-}
 
 #####################################
 # Overwrite Variables with Environment Settings if they exist.	
@@ -172,7 +171,7 @@ if ($hwVendor == 1) {
 	my $oui_access 	  = (stat $ouiFile)[9];
 	my $oui_age    	  = ($epoch - $oui_access);
 	if ($oui_age >= $oui_sched || !-f $ouiFile) {
-		`wget -O $ouiFile $ouiURL`
+		`wget -O $ouiFile $ouiUrl`
 	}
 
         open (my $oui_handle, '<', "$ouiFile") or warn $!;
@@ -199,7 +198,9 @@ if ($hwVendor == 1) {
 # Check that a file has been given if running in offline mode
 if (defined($pcapFile)) {
 	if (!-e $pcapFile) {
-		print "Unable to find file $pcapFile for processing.\n";
+		$message = "Unable to find file $pcapFile for processing.\n";
+		print "$message";
+		logIt($message);
 		exit;
 	} else {
 		$sample = -1;
@@ -233,7 +234,7 @@ sub output {
 					 max_time  => 300 );
 	}
 
-	my $counter = 0;
+	$counter = 0;
 	my $result;
 	foreach my $key (keys(%{$ref})) {
 		my $json = JSON->new();	
@@ -270,6 +271,7 @@ sub output {
 				$ref->{$key}->{continent_code} = $record->continent_code;
 				$ref->{$key}->{metro_code} = $record->metro_code;
 			}
+			$counter++;	
 		}
 			
 		my $jsonOut = $json->utf8->encode($ref->{$key});
@@ -278,18 +280,12 @@ sub output {
 					type  	=> '_doc',
 					id	=> $key,
 					source	=> $ref->{$key} });
-			$counter++;
-			if ($debug == 1) {
-				my $message = "$counter elasticsearch documents written";
-				print "$message\n";
-			}
+			my $message = "$counter elasticsearch documents written";
+			debugOut($message);
 
 		}
 
 		if ($displayJson == 1) {
-			#if (defined($ref->{sum})) {
-			#	print Dumper $ref->{sum};
-			#}
 			print "$jsonOut\n";
 		}
 
@@ -304,9 +300,11 @@ sub output {
 	}
 	if ($elastic == 1) {
 		$result = $bulk->flush;
+		$message = "Wrote $counter packets to elasticsearch\n";
+		print "$message";
+		logIt($message);
 	}
 	undef($ref);
-	exit;
 }
 
 #####################################
@@ -384,9 +382,8 @@ sub callout {
 	$packetTime = strftime("%Y-%m-%dT%H:%M:%S", localtime($header->{tv_sec}));
 	$ref->{$primaryKey}->{date} = $packetTime;
 
-	if ($debug == 1) {
-		print "date:$ref->{$primaryKey}->{date}\n";
-	}
+	$message = "date:$ref->{$primaryKey}->{date}\n";
+	debugOut($message);
 
 	# Possible states are UNKNOWN, SUSPECT, CLEAN, DIRTY
 	$state = "UNKNOWN";
@@ -430,21 +427,8 @@ sub callout {
 		$ipTos		= $ip->{tos};
 		$ipCksum	= $ip->{cksum};
 
-		if ($debug == 1) {
-			print "IPv4 data:\n";
-			print "\tip.src:$ipSrcIp\n";
-			print "\tip.dst:$ipDstIp\n";
-			print "\tip.proto:$ipProto\n";
-			print "\tip.len:$ipLen\n";
-			print "\tip.ttl:$ipTtl\n";
-			print "\tip.hlen:$ipHlen\n";
-			print "\tip.options:$ipOptions\n";
-			print "\tip.offset:$ipFoffset\n";
-			print "\tip.flags:$ipFlags\n";
-			print "\tip.tos:$ipTos\n";
-			print "\tip.version:$ipVer\n";
-			print "\tip.cksum:$ipCksum\n";
-		}
+		$message = "IPv4 data:\n\tip.src:$ipSrcIp\n\tip.dst:$ipDstIp\n\tip.proto:$ipProto\n\tip.len:$ipLen\n\tip.ttl:$ipTtl\n\tip.hlen:$ipHlen\n\tip.options:$ipOptions\n\tip.offset:$ipFoffset\n\tip.flags:$ipFlags\n\tip.tos:$ipTos\n\tip.version:$ipVer\n\tip.cksum:$ipCksum\n";
+		debugOut($message);
 	}
 	
 
@@ -466,7 +450,6 @@ sub callout {
 	
 	if ($netFilter == 1) {
 		if (!$cidr->find($ipDstIp) && !$cidr->find($ipSrcIp) ) {
-                        #print "Required $targetNet not found.\n";
                         return;
                 }
         }
@@ -518,14 +501,9 @@ sub callout {
                         }
                         $ref->{$primaryKey}->{src_vendor} = $srcV;
                         $ref->{$primaryKey}->{dst_vendor} = $dstV;
-                        if ($debug == 1) {
-				print "\tVendor data:\n";
-				print "\t\tprimarykey:$primaryKey\n";
-				print "\t\tmac.src:$srcMac\n";
-				print "\t\tmac.dst:$dstMac\n";
-				print "\t\tsrc_vendor:$srcV\n";
-				print "\t\tdst_vendor:$dstV\n";
-                        }
+
+			$message = "\tVendor data:\n\t\tprimarykey:$primaryKey\n\t\tmac.src:$srcMac\n\t\tmac.dst:$dstMac\n\t\tsrc_vendor:$srcV\n\t\tdst_vendor:$dstV\n";
+			debugOut($message);
                 }
            
 		if ($is_arp == 1) {             
@@ -538,18 +516,9 @@ sub callout {
 			$ref->{$primaryKey}->{arp}->{spa}    = $arpSpa;
 			$ref->{$primaryKey}->{arp}->{tha}    = $arpTha;
 			$ref->{$primaryKey}->{arp}->{tpa}    = $arpTpa;
-			if ($debug == 1) {
-				print "ARP data:\n";
-				print "\tl2.proto:$ref->{$primaryKey}->{l2}->{proto}\n";
-				print "\tarp.htype:$arpHtype\n";
-				print "\tarp.proto:$arpProto\n";
-				print "\tarp.hlen:$arpHlen\n";
-				print "\tarp.opcode:$arpOpcode\n";
-				print "\tarp.sha:$arpSha\n";
-				print "\tarp.spa:$arpSpa\n";
-				print "\tarp.tha:$arpTha\n";
-				print "\tarp.tpa:$arpTpa\n";
-			}
+
+			$message = "ARP data:\n\tl2.proto:$ref->{$primaryKey}->{l2}->{proto}\n\tarp.htype:$arpHtype\n\tarp.proto:$arpProto\n\tarp.hlen:$arpHlen\n\tarp.opcode:$arpOpcode\n\tarp.sha:$arpSha\n\tarp.spa:$arpSpa\n\tarp.tha:$arpTha\n\tarp.tpa:$arpTpa\n";
+			debugOut($message);
 
 		}
         }
@@ -564,16 +533,9 @@ sub callout {
 		$ref->{$primaryKey}->{ip6}->{plen}	= $ip6Plen;
 		$ref->{$primaryKey}->{ip6}->{nxt}	= $ip6Nxt;
 		$ref->{$primaryKey}->{ip6}->{hlim}	= $ip6Hlim;
-		if ($debug == 1) {
-			print "IPv6 data:\n";
-			print "\tip6.src:$ip6SrcIp\n";
-			print "\tip6.dst:$ip6DstIp\n";
-			print "\tip6.class:$ip6Class\n";
-			print "\tip6.flow:$ip6Flow\n";
-			print "\tip6.plen:$ip6Plen\n";
-			print "\tip6.nxt:$ip6Nxt $ipProto\n";
-			print "\tip6.hlim:$ip6Hlim\n";
-		}
+
+		$message = "IPv6 data:\n\tip6.src:$ip6SrcIp\n\tip6.dst:$ip6DstIp\n\tip6.class:$ip6Class\n\tip6.flow:$ip6Flow\n\tip6.plen:$ip6Plen\n\tip6.nxt:$ip6Nxt $ipProto\n\tip6.hlim:$ip6Hlim\n";
+		debugOut($message);
 
 
 	}
@@ -700,7 +662,6 @@ sub callout {
 
 		if ($payload == 1) {
 			if ($tcp->{data}) {
-				#$ref->{$primaryKey}->{tcp}->{data} = unpack("h$plBits", $tcp->{data});
 				$ref->{$primaryKey}->{tcp}->{data} = getClean($tcp->{data});
 			}
 		}
@@ -764,9 +725,6 @@ sub callout {
 
 		# L7 inspection modules
 		if ($l7Enable == 1) {
-			if ($debug == 1) {
-				print "\tLayer7 data:\n";
-			}
 			# BGP traffic
 			if ($tcp->{data} =~ /^\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff..?\x01[\x03\x04]/) {
 				$ref->{$primaryKey}->{l7}->{proto} = "bgp";
@@ -795,7 +753,6 @@ sub callout {
 			# HTTP Request	
 			if ($tcp->{data} =~ /^GET |^POST |^HEAD |^PUT |^DELETE |^TRACE |^CONNECT /i) {
 				my @lines = split("\n", $tcp->{data});
-				#print "$lines[0]\n";
 				my $methUri = shift(@lines);
 				my @methodData = split(" ", $methUri);
 
@@ -803,11 +760,9 @@ sub callout {
 				$ref->{$primaryKey}->{http}->{request}->{method} = $methodData[0];
 				$ref->{$primaryKey}->{http}->{request}->{uri} = $methodData[1];
 				$ref->{$primaryKey}->{http}->{request}->{version} = $methodData[2];
-				if ($debug == 1) {
-					print "\t\thttp.request.method:$ref->{$primaryKey}->{http}->{request}->{method}\n";
-					print "\t\thttp.request.uri:$ref->{$primaryKey}->{http}->{request}->{uri}\n";
-					print "\t\thttp.request.version:$ref->{$primaryKey}->{http}->{request}->{version}\n"; 
-				}
+
+				$message = "\tLayer7 data:\n\t\thttp.request.method:$ref->{$primaryKey}->{http}->{request}->{method}\n\t\thttp.request.uri:$ref->{$primaryKey}->{http}->{request}->{uri}\n\t\thttp.request.version:$ref->{$primaryKey}->{http}->{request}->{version}\n"; 
+				debugOut($message);
 
 				if ($recType eq 'dist') {
 					$ref->{$primaryKey}->{count}->{l7}->{proto}->{http}++;
@@ -848,9 +803,8 @@ sub callout {
 
 					$ref->{$primaryKey}->{http}->{header}->{$header} = $headerContent;
 
-					if ($debug == 1) {
-						print "\t\thttp.header:$ref->{$primaryKey}->{http}->{header}->{$header}\n";
-					}
+					$message = "\t\thttp.header:$ref->{$primaryKey}->{http}->{header}->{$header}\n";
+					debugOut($message);
 
 					if ($recType eq "dist") {
 						if ($header eq "cookie") {
@@ -902,11 +856,8 @@ sub callout {
 				$ref->{$primaryKey}->{http}->{response}->{code} = $resCode;
 				$ref->{$primaryKey}->{http}->{response}->{status} = $resStatus;
 
-				if ($debug == 1) {
-					print "\t\thttp.response.version:$ref->{$primaryKey}->{http}->{response}->{version}\n";
-					print "\t\thttp.response.code:$ref->{$primaryKey}->{http}->{response}->{code}\n";
-					print "\t\thttp.response.status:$ref->{$primaryKey}->{http}->{response}->{status}\n";
-				}
+				$message = "\t\thttp.response.version:$ref->{$primaryKey}->{http}->{response}->{version}\n\t\thttp.response.code:$ref->{$primaryKey}->{http}->{response}->{code}\n\t\thttp.response.status:$ref->{$primaryKey}->{http}->{response}->{status}\n";
+				debugOut($message);
 
 				foreach (@lines) {
 					my $line = $_;
@@ -924,7 +875,6 @@ sub callout {
 			}
 
 		}
-                #print $ipSrcIp, " ", $ipDstIp, " ", $ipProto, " ", $tmp, " ", $tcp->{data}, "\n"
         } elsif ($ipProto eq "udp") {
         	$udp = NetPacket::UDP->decode($ip->{data});
 		$udpDstPort = $udp->{dest_port};
@@ -962,16 +912,11 @@ sub callout {
 			#$ref->{$primaryKey}->{count}->{udp}->{len}->{$udpLen}++;
 	
 		}
-		if ($debug == 1) {
-			print "\tUDP data:\n";
-			print "\t\tudp.dstport:$ref->{$primaryKey}->{udp}->{dstport}\n";
-			print "\t\tudp.srcport:$ref->{$primaryKey}->{udp}->{srcport}\n";
-			print "\t\tudp.len:$ref->{$primaryKey}->{udp}->{len}\n";
-		}
+
+		$message = "\tUDP data:\n\t\tudp.dstport:$ref->{$primaryKey}->{udp}->{dstport}\n\t\tudp.srcport:$ref->{$primaryKey}->{udp}->{srcport}\n\t\tudp.len:$ref->{$primaryKey}->{udp}->{len}\n";
+		debugOut($message);
 	
 	
-		#my $offset = substr($udp->{data}, -10);
-		#print "$offset ***\n";
         } elsif ($ipProto eq "icmp") {
         	$icmp = NetPacket::ICMP->decode($ip->{data});
 		$icmpType = $icmp->{type};
@@ -990,12 +935,8 @@ sub callout {
 
 		}
 
-		if ($debug == 1) {
-			print "\tICMP data:\n";
-			print "\t\ticmp.type:$ref->{$primaryKey}->{icmp}->{type}\n";
-			print "\t\ticmp.code:$ref->{$primaryKey}->{icmp}->{code}\n";
-			print "\t\ticmp.data:$ref->{$primaryKey}->{icmp}->{data}\n";
-		}
+		$message =  "\tICMP data:\n\t\ticmp.type:$ref->{$primaryKey}->{icmp}->{type}\n\t\ticmp.code:$ref->{$primaryKey}->{icmp}->{code}\n\t\ticmp.data:$ref->{$primaryKey}->{icmp}->{data}\n";
+		debugOut($message);
 
 	} elsif ($ipProto eq "igmp") {
         	$igmp = NetPacket::IGMP->decode($ip->{data});
@@ -1021,20 +962,14 @@ sub callout {
 		if ($recType eq 'dist') {
 
 		}
-		if ($debug == 1) {
-			print "\tIGMP data:\n";
-			print "\t\tigmp.version:$ref->{$primaryKey}->{igmp}->{version}\n";
-			print "\t\tigmp.type:$ref->{$primaryKey}->{igmp}->{type}\n";
-			print "\t\tigmp.len:$ref->{$primaryKey}->{igmp}->{len}\n";
-			print "\t\tigmp.subtype:$ref->{$primaryKey}->{igmp}->{subtype}\n";
-			print "\t\tigmp.group_addr:$ref->{$primaryKey}->{igmp}->{group_addr}\n";
-			print "\t\tigmp.data:$ref->{$primaryKey}->{igmp}->{data}\n";
-		}
+
+		$message = "\tIGMP data:\n\t\tigmp.version:$ref->{$primaryKey}->{igmp}->{version}\n\t\tigmp.type:$ref->{$primaryKey}->{igmp}->{type}\n\t\tigmp.len:$ref->{$primaryKey}->{igmp}->{len}\n\t\tigmp.subtype:$ref->{$primaryKey}->{igmp}->{subtype}\n\t\tigmp.group_addr:$ref->{$primaryKey}->{igmp}->{group_addr}\n\t\tigmp.data:$ref->{$primaryKey}->{igmp}->{data}\n";
+		debugOut($message);
+
 	}
 
-	if ($debug == 1) {
-		print "\t\tl7.proto:$ref->{$primaryKey}->{l7}->{proto}\n";
-	}
+	$message = "\tl7.proto:$ref->{$primaryKey}->{l7}->{proto}\n";
+	debugOut($message);
 
 	# Process Combination Strings
 	#my $combo = "$ipProto:$ipLen:$ipTtl:$tcpFlag:$tcpWinsize:$tcpSrcPort:$tcpDstPort:$udpSrcPort:$udpDstPort";
@@ -1043,6 +978,7 @@ sub callout {
 		#push(@{$ref->{$primaryKey}->{combo}}, $combo);
 	#}
 }
+logIt("stopped. $counter packets processed.");
 
 
 #####################################
@@ -1058,9 +994,8 @@ sub addTag {
 		}
 
 		push(@{$ref->{$pkey}->{tags}}, "$tag");
-		if ($debug == 1) {
-			print "TAG:\t$tag\n";
-		}
+		$message = "TAG:\t$tag\n";
+		debugOut($message);
 	}
 	return;
 }
@@ -1072,13 +1007,15 @@ sub getClean {
 	my $mess = shift;
 	if ($payload == 1) {
 		my $getBits = $plBits;
-		if ($ref->{$primaryKey}->{l7}->{proto} == "http") {
-			$getBits = "2048";
-		}
+		#if ($ref->{$primaryKey}->{l7}->{proto} == "http") {
+		#	$getBits = "2048";
+		#}
 			
 		$mess =~ s/\n|\r|\x0D/\./g;
 		$mess =~ s/[^[:ascii:]]|[^[:print:]]/\./g;
 		$mess = substr($mess, 0, $getBits);
+	} else {
+		$mess = "";
 	}
 
 	return($mess);
@@ -1133,6 +1070,29 @@ sub getPats {
 }
 
 #####################################
+# log the message given 
+#####################################
+sub logIt {
+	my $message = shift;
+	if ($logging == 1) {
+		openlog("$0", "ndelay,pid", "local0");
+		syslog("info|local0", $message);
+		closelog();
+	}
+}
+
+#####################################
+# print message to stdout for debug 
+#####################################
+sub debugOut {
+	my $message = shift;
+	if ($debug == 1) {
+		print "$message";
+	}
+}
+
+
+#####################################
 # help output 
 #####################################
 sub help {
@@ -1144,6 +1104,7 @@ sub help {
 	print "\t-c\tNumber of packets to process. Only works when interface is defined.\n";
 	print "\t-e\tEnable elastic search.\n";
 	print "\t-s\tElastic search server address with port. eg: 192.168.1.10:9200\n";
+	print "\t-l\tEnable syslog logging.\n";
 	print "\t-h\tThis help output.\n";
 	print "\n";
 	print "Examples:\n";
