@@ -1,8 +1,6 @@
 #!/usr/bin/perl
 # Optimus packet to profile transform generator 
-# author: woodyk@gmail.com
-#
-# ipv4 traffic distribution generator and indexer
+# network traffic distribution generator and indexer
 #
 
 use strict;
