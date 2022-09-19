@@ -84,3 +84,6 @@ udp.data
 udp.dstport
 udp.len
 udp.srcport
+dns.src
+dns.dst
+
