@@ -78,6 +78,7 @@ my $l7Enable	= $config->{'application'}->{'l7Enable'};
 my $recType	= $config->{'application'}->{'recType'}; 
 my $geoip	= $config->{'application'}->{'geoip'}; 
 my $geoipDat	= $config->{'application'}->{'geoipDat'};
+my $nameLookup	= $config->{'application'}->{'nameLookup'};
 
 #####################################
 # Prep and enable logging
@@ -109,6 +110,7 @@ GetOptions(
 	'elastic'	=> sub { $elastic = 1},
 	'server=s'	=> \$esNode,
 	'logging'	=> sub { $logging = 1},
+	'revlookup'	=> sub { $nameLookup = 1; },
 );
 
 logIt("started.");
@@ -245,17 +247,21 @@ sub output {
 		$ref->{$key}->{hostname} = $hostname;
 		$ref->{$key}->{int} = $interface;
 		$ref->{$key}->{datasource} = $dataSource;
-		my $locaddy;
+
+		my $srcAddy;
+		my $dstAddy;
+
+		if ($ref->{$key}->{ip}->{ver} == 4) {
+			$srcAddy = $ref->{$key}->{ip}->{src};
+			$dstAddy = $ref->{$key}->{ip}->{dst};
+		} elsif ($ref->{$key}->{ip}->{ver} == 6) {
+			$srcAddy = $ref->{$key}->{ip6}->{src};
+			$dstAddy = $ref->{$key}->{ip6}->{dst};
+		}
+
 		$json->indent();
 		if ($geoip == 1) {
-			if ($ref->{$key}->{ip}->{ver} == 4) {
-				$locaddy = $ref->{$key}->{ip}->{src};
-			} elsif ($ref->{$key}->{ip}->{ver} == 6) {
-				$locaddy = $ref->{$key}->{ip6}->{src};
-			}
-
-
-			if (my $record = $gi->record_by_addr("$locaddy")) {
+			if (my $record = $gi->record_by_addr("$srcAddy")) {
 				$ref->{$key}->{country_code} = $record->country_code;
 				$ref->{$key}->{country_code3} = $record->country_code3;
 				$ref->{$key}->{country_name} = $record->country_name;
@@ -270,6 +276,11 @@ sub output {
 				$ref->{$key}->{metro_code} = $record->metro_code;
 			}
 			$counter++;	
+		}
+
+		if ($nameLookup == 1) {	
+			$ref->{$key}->{dns}->{src} = revDns($srcAddy);
+			$ref->{$key}->{dns}->{dst} = revDns($dstAddy);
 		}
 			
 		my $jsonOut = $json->utf8->encode($ref->{$key});
@@ -1117,5 +1128,22 @@ sub help {
 	print "\n";
 	
 	exit;
+}
+
+#####################################
+# Reverse DNS recorder
+#####################################
+
+sub revDns {
+	my $ip = shift;
+
+	my $ipaddr = inet_aton($ip);
+	my $hostname = gethostbyaddr($ipaddr, AF_INET);
+
+	if (defined($hostname)) {
+		return($hostname);
+	} else {
+		return("unknown");
+	}
 }
 

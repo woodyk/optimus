@@ -1,9 +1,19 @@
-curl -XPUT 'elasticsearch.host:9200/_template/pcap_data_template?pretty' -H 'Content-Type: application/json' -d'
+curl -XPUT "$1:9200/_template/pcap_data_template?pretty" -H 'Content-Type: application/json' -d'
 {
     "index_patterns" : ["profile_*"],
     "settings" : { "number_of_shards" : 1 },
     "mappings" : {
         "properties" : {
+          "dns" : {
+            "properties" : {
+              "src" : {
+                "type" : "text"
+              },
+              "dst" : {
+                "type" : "text"
+              }
+            }
+          },
           "igmp" : {
             "properties" : {
               "group_addr" : {
