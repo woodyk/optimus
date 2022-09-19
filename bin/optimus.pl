@@ -1114,6 +1114,7 @@ sub help {
 	print "\t-e\tEnable elastic search.\n";
 	print "\t-s\tElastic search server address with port. eg: 192.168.1.10:9200\n";
 	print "\t-l\tEnable syslog logging.\n";
+	print "\t-r\tEnable reverse DNS lookup. (much slower)\n";
 	print "\t-h\tThis help output.\n";
 	print "\n";
 	print "Examples:\n";
