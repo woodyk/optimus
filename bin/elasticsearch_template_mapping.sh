@@ -365,7 +365,14 @@ curl -XPUT "$1:9200/_template/pcap_data_template?pretty" -H 'Content-Type: appli
             "type" : "geo_point"
           },
           "vendor" : {
-            "type" : "keyword"
+            "properties" : {
+              "src" : {
+                "type" : "keyword"
+              },
+              "dst" : {
+                "type" : "keyword"
+              }
+            }
           }
         }
     },

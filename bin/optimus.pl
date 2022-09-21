@@ -31,7 +31,7 @@ use NetPacket::IPv6;
 #use Netpacket::ICMPv6;
 use Search::Elasticsearch;
 
-my $confFile = '../etc/prime.ini';
+my $confFile = '../etc/optimus.ini';
 my $config = Config::Tiny->new;
 $config = Config::Tiny->read($confFile, 'utf8');
 #print Dumper $config;
@@ -68,14 +68,12 @@ my $ouiFile	= $config->{'application'}->{'ouiFile'};
 my $ouiUrl	= $config->{'application'}->{'ouiUrl'};
 my $payload	= $config->{'application'}->{'payload'}; 
 my $plBits	= $config->{'application'}->{'plBits'}; 
-my $netFilter	= $config->{'application'}->{'netFilter'}; 
 my $targetNet	= $config->{'application'}->{'targetNet'}; 
 my $sample	= $config->{'application'}->{'sample'}; 
 my $maxPerDest	= $config->{'application'}->{'maxPerDest'}; 
 my $ip6Enable	= $config->{'application'}->{'ip6Enable'}; 
 my $l2Enable	= $config->{'application'}->{'l2Enable'};
 my $l7Enable	= $config->{'application'}->{'l7Enable'}; 
-my $recType	= $config->{'application'}->{'recType'}; 
 my $geoip	= $config->{'application'}->{'geoip'}; 
 my $geoipDat	= $config->{'application'}->{'geoipDat'};
 my $nameLookup	= $config->{'application'}->{'nameLookup'};
@@ -118,7 +116,6 @@ logIt("started.");
 if ($esNode !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}$/) {
 	$message = "error: IP address not valid.\n";
 	print "$message";
-	debugOut($message);
 	logIt($message);
 	exit;
 } 
@@ -144,14 +141,6 @@ if ($ENV{OPTIMUS_INTERFACE}) {
 	$interface = $ENV{OPTIUMUS_INTERFACE};
 }
 
-if ($netFilter == 1) {
-	$cidr = Net::CIDR::Lite->new;
-	$cidr->add($targetNet);
-	#foreach (@targetNet) {
-	#	$cidr->add($_);
-	#}
-}
-
 #####################################
 # Open Geo IP handle if enabled. 
 #####################################
@@ -171,11 +160,11 @@ if ($hwVendor == 1) {
 	my $oui_access 	  = (stat $ouiFile)[9];
 	my $oui_age    	  = ($epoch - $oui_access);
 	if ($oui_age >= $oui_sched || !-f $ouiFile) {
-		`wget -O $ouiFile $ouiUrl`
+		`wget -O $ouiFile $ouiUrl`;
 	}
 
-        open (my $oui_handle, '<', "$ouiFile") or warn $!;
-        while (my $line = <$oui_handle>) {
+        open (OUI, '<', "$ouiFile") or warn $!;
+        foreach my $line (<OUI>) {
                 if ($line !~ /^\#/) {
                         my($address, $vendor, $vendor_long) = split(/\t+/, $line);
 			chomp($vendor_long);
@@ -187,15 +176,14 @@ if ($hwVendor == 1) {
                         $oui{$address} = $vendor_long;
                 }
         }
-	close($ouiFile);
+	close(OUI);
 	$oui{FFFFFF} = "Unknown";
 }
 
 #####################################
-# Sanity checks 
+# Check that a file has been given if running in offline mode
 #####################################
 
-# Check that a file has been given if running in offline mode
 if (defined($pcapFile)) {
 	if (!-e $pcapFile) {
 		$message = "Unable to find file $pcapFile for processing.\n";
@@ -239,7 +227,7 @@ sub output {
 	foreach my $key (keys(%{$ref})) {
 		my $json = JSON->new();	
 
-		my $hashSize = keys($ref->{$key});
+		my $hashSize = length($ref->{$key});
 		if ($hashSize <= 1) {
 			next;
 		}
@@ -289,9 +277,6 @@ sub output {
 					type  	=> '_doc',
 					id	=> $key,
 					source	=> $ref->{$key} });
-			my $message = "$counter elasticsearch documents written";
-			debugOut($message);
-
 		}
 
 		if ($displayJson == 1) {
@@ -359,26 +344,23 @@ sub callout {
 	# ETHERNET declarations
 	my ($ether, $l2, $srcMac, $dstMac, $l2type);
 
-	# ARP declarations
-	my ($arpHtype, $arpProto, $arpHlen, $arpPlen, $arpOpcode, $arpSha, $arpSpa, $arpTha, $arpTpa); 
-
 	# IP declarations
-	my ($ip, $ipLen, $ipId, $ipHlen, $ipCksum, $ipTtl, $ipFoffset, $ipTos, $ipVer, $ipFlags, $ipProto, $ipSrcIp, $ipDstIp, $ipSrcIpInt, $ipDstIpInt, $ipOptions);
+	my ($ip, $ipProto, $ipSrcIp, $ipDstIp);
 
 	# IPv6 declarations
-	my ($ip6, $ip6DstIp, $ip6SrcIp, $ip6Class, $ip6Ver, $ip6Flow, $ip6Plen, $ip6Nxt, $ip6Hlim);
+	my $ip6;
 
 	# TCP delcarations
-	my ($tcp, $tcpFlag, $tcpDstPort, $tcpSrcPort, $tcpWinsize, $tcpHlen, $tcpSeq, $tcpAckNum, $tcpReserved, $tcpCksum, $tcpUrg, $tcpOptions);
+	my ($tcp, $tcpFlag);
 
 	# UDP declarations
-	my ($udp, $udpSrcPort, $udpDstPort, $udpLen);
+	my $udp;
 
 	# ICMP declarations
-	my ($icmp, $icmpType, $icmpCode, $icmpData);
+	my $icmp;
 
 	# IGMP declarations
-	my ($igmp, $igmpVersion, $igmpType, $igmpLen, $igmpSubtype, $igmpGroupAddr, $igmpData);
+	my $igmp;
 
 	# Other declarations for sub callout
 	my $state;
@@ -391,9 +373,6 @@ sub callout {
 	$packetTime = strftime("%Y-%m-%dT%H:%M:%S", localtime($header->{tv_sec}));
 	$ref->{$primaryKey}->{date} = $packetTime;
 
-	$message = "date:$ref->{$primaryKey}->{date}\n";
-	debugOut($message);
-
 	# Possible states are UNKNOWN, SUSPECT, CLEAN, DIRTY
 	$state = "UNKNOWN";
 
@@ -401,82 +380,73 @@ sub callout {
 	$eth_obj	= NetPacket::Ethernet->decode($packet);
 
 	# decimal number for ARP 2054:
-	my $is_arp = 0;
-	if ($eth_obj->{type} == "2054") {
+	if ($eth_obj->{type} == "2054" && $l2Enable == 1) {
 		my $arp_obj = NetPacket::ARP->decode($eth_obj->{data}, $eth_obj);
 
-		$arpHtype  = $arp_obj->{htype};
-		$arpProto  = $arp_obj->{proto};
-		$arpHlen   = $arp_obj->{hlen};
-		$arpOpcode = $arp_obj->{opcode};
-		$arpSha    = uc($arp_obj->{sha});
-		$arpSpa    = uc($arp_obj->{spa});
-		$arpTha    = uc($arp_obj->{tha});
-		$arpTpa    = uc($arp_obj->{tpa});
-		
-		$is_arp = 1;
+		$ref->{$primaryKey}->{l2}->{proto}   = "arp";
+		$ref->{$primaryKey}->{arp}->{htype}  = $arp_obj->{htype};
+		$ref->{$primaryKey}->{arp}->{proto}  = $arp_obj->{proto};
+		$ref->{$primaryKey}->{arp}->{hlen}   = $arp_obj->{hlen};
+		$ref->{$primaryKey}->{arp}->{opcode} = $arp_obj->{opcode};
+		$ref->{$primaryKey}->{arp}->{sha}    = uc($arp_obj->{sha});
+		$ref->{$primaryKey}->{arp}->{spa}    = uc($arp_obj->{spa});
+		$ref->{$primaryKey}->{arp}->{tha}    = uc($arp_obj->{tha});
+		$ref->{$primaryKey}->{arp}->{tpa}    = uc($arp_obj->{tpa});
+
 	}
 
 	$ip		= NetPacket::IP->decode($ether);
-	$ipVer		= $ip->{ver};
 
-	if ($ipVer == 4) {
-        	$ipProto	= getprotobynumber($ip->{proto});
-		$ipLen		= $ip->{len};
-		$ipTtl		= $ip->{ttl};
-		$ipHlen		= $ip->{hlen};
-		$ipId		= $ip->{id};
-		$ipOptions	= $ip->{options};
-		$ipDstIp	= $ip->{dest_ip};
-		$ipSrcIp	= $ip->{src_ip};
-		$ipDstIpInt	= ip2num("$ip->{dest_ip}");
-		$ipSrcIpInt	= ip2num("$ip->{src_ip}");
-		$ipFoffset	= $ip->{foffset};
-		$ipFlags	= $ip->{flags};
-		$ipTos		= $ip->{tos};
-		$ipCksum	= $ip->{cksum};
+	if ($ip->{ver} == 4) {
+		$ipProto        = getprotobynumber($ip->{proto});
+		$ref->{$primaryKey}->{ip}->{dst} 	= $ip->{dest_ip};
+		$ref->{$primaryKey}->{ip}->{src} 	= $ip->{src_ip};
+		$ref->{$primaryKey}->{raw}->{ip}->{dst} = $ip->{dest_ip};
+		$ref->{$primaryKey}->{raw}->{ip}->{src} = $ip->{src_ip};
+		$ref->{$primaryKey}->{ip}->{ver} 	= $ip->{ver};
+		$ref->{$primaryKey}->{ip}->{foffset} 	= $ip->{foffset};
+		$ref->{$primaryKey}->{ip}->{tos} 	= $ip->{tos};
+		$ref->{$primaryKey}->{ip}->{flags} 	= $ip->{flags};
+		$ref->{$primaryKey}->{ip}->{len} 	= $ip->{len};
+		$ref->{$primaryKey}->{ip}->{hlen} 	= $ip->{hlen};
+		$ref->{$primaryKey}->{ip}->{options} 	= $ip->{options};
+		$ref->{$primaryKey}->{ip}->{ttl} 	= $ip->{ttl};
+		$ref->{$primaryKey}->{ip}->{proto} 	= $ipProto;
+		$ref->{$primaryKey}->{ip}->{cksum} 	= $ip->{cksum};
 
-		$message = "IPv4 data:\n\tip.src:$ipSrcIp\n\tip.dst:$ipDstIp\n\tip.proto:$ipProto\n\tip.len:$ipLen\n\tip.ttl:$ipTtl\n\tip.hlen:$ipHlen\n\tip.options:$ipOptions\n\tip.offset:$ipFoffset\n\tip.flags:$ipFlags\n\tip.tos:$ipTos\n\tip.version:$ipVer\n\tip.cksum:$ipCksum\n";
-		debugOut($message);
+		# IPv4 Assignment Tagging       
+                if ($ref->{$primaryKey}->{ip}->{src} =~ /^255/ ||  $ref->{$primaryKey}->{ip}->{dst} =~ /^255/) {
+                        addTag($primaryKey, 'BROADCAST');
+                } elsif ($ref->{$primaryKey}->{ip}->{src} =~ /^22[3-9]|^23[0-9]/ || $ref->{$primaryKey}->{ip}->{dst} =~ /^22[3-9]|^23[0-9]/ ) {      #223 - 239 = Multicast
+                        addTag($primaryKey, 'MULTICAST');
+                }
+
 	}
 	
 
-	if ($ipVer == 6 && $ip6Enable == 1) {
+	if ($ip->{ver} == 6 && $ip6Enable == 1) {
   		$ip6 = NetPacket::IPv6->decode($ether);
 
-		$ip6Ver = $ip6->{ver};
-		$ip6Class = $ip6->{class};
-		$ip6Flow = $ip6->{flow};
-		$ip6Plen = $ip6->{plen};
-		$ip6Nxt = $ip6->{nxt};
-		$ip6Hlim = $ip6->{hlim};
-	
-		$ip6SrcIp = $ip6->{src_ip};
-		$ip6DstIp = $ip6->{dest_ip};
+		$ref->{$primaryKey}->{ip6}->{src}       = $ip6->{src_ip};
+                $ref->{$primaryKey}->{ip6}->{dst}       = $ip6->{dest_ip};
+                $ref->{$primaryKey}->{raw}->{ip}->{src} = $ip6->{src_ip};
+                $ref->{$primaryKey}->{raw}->{ip}->{dst} = $ip6->{dest_ip};
+                $ref->{$primaryKey}->{ip6}->{class}     = $ip6->{class};
+                $ref->{$primaryKey}->{ip6}->{flow}      = $ip6->{flow};
+                $ref->{$primaryKey}->{ip6}->{plen}      = $ip6->{plen};
+                $ref->{$primaryKey}->{ip6}->{nxt}       = $ip6->{nxt};
+                $ref->{$primaryKey}->{ip6}->{hlim}      = $ip6->{hlim};
         	$ipProto = getprotobynumber($ip6->{nxt});
 
 	}
 	
-	if ($netFilter == 1) {
-		if (!$cidr->find($ipDstIp) && !$cidr->find($ipSrcIp) ) {
-                        return;
-                }
-        }
-
 	# Primary key that determines indexing resolution.
 	my $ipAddressForBeanCounter;
 	$primaryKey = UUID::Random::generate;
-	if ($ipVer == 6) {
-		$ipAddressForBeanCounter = $ip6DstIp;
-	} else {
+	if ($ip->{ver} == 6) {
+		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip6}->{dst};
+	} elsif ($ip->{ver} == 4) {
 		$ipAddressForBeanCounter = $ipDstIp;
-	}
-	if ($recType eq 'dist') {
-		if ($ipVer == 6) {
-			$primaryKey = $ip6DstIp;
-		} else {
-			$primaryKey = $ipDstIp;
-		}
 	}
 
 	# Only collect N samples perl destination IP;
@@ -508,123 +478,13 @@ sub callout {
                         } else {
                                 $dstV = "Unknown";
                         }
-                        $ref->{$primaryKey}->{src_vendor} = $srcV;
-                        $ref->{$primaryKey}->{dst_vendor} = $dstV;
+                        $ref->{$primaryKey}->{vendor}->{src} = $srcV;
+                        $ref->{$primaryKey}->{vendor}->{dst} = $dstV;
 
-			$message = "\tVendor data:\n\t\tprimarykey:$primaryKey\n\t\tmac.src:$srcMac\n\t\tmac.dst:$dstMac\n\t\tsrc_vendor:$srcV\n\t\tdst_vendor:$dstV\n";
-			debugOut($message);
                 }
            
-		if ($is_arp == 1) {             
-			$ref->{$primaryKey}->{l2}->{proto}   = "arp";
-			$ref->{$primaryKey}->{arp}->{htype}  = $arpHtype;
-			$ref->{$primaryKey}->{arp}->{proto}  = $arpProto;
-			$ref->{$primaryKey}->{arp}->{hlen}   = $arpHlen;
-			$ref->{$primaryKey}->{arp}->{opcode} = $arpOpcode;
-			$ref->{$primaryKey}->{arp}->{sha}    = $arpSha;
-			$ref->{$primaryKey}->{arp}->{spa}    = $arpSpa;
-			$ref->{$primaryKey}->{arp}->{tha}    = $arpTha;
-			$ref->{$primaryKey}->{arp}->{tpa}    = $arpTpa;
-
-			$message = "ARP data:\n\tl2.proto:$ref->{$primaryKey}->{l2}->{proto}\n\tarp.htype:$arpHtype\n\tarp.proto:$arpProto\n\tarp.hlen:$arpHlen\n\tarp.opcode:$arpOpcode\n\tarp.sha:$arpSha\n\tarp.spa:$arpSpa\n\tarp.tha:$arpTha\n\tarp.tpa:$arpTpa\n";
-			debugOut($message);
-
-		}
         }
 
-	if ($ipVer == 6 && $ip6Enable == 1) {
-		$ref->{$primaryKey}->{ip6}->{src}	= $ip6SrcIp;
-		$ref->{$primaryKey}->{ip6}->{dst}	= $ip6DstIp;
-		$ref->{$primaryKey}->{raw}->{ip}->{src} = $ip6SrcIp;
-		$ref->{$primaryKey}->{raw}->{ip}->{dst} = $ip6DstIp;
-		$ref->{$primaryKey}->{ip6}->{class}	= $ip6Class;
-		$ref->{$primaryKey}->{ip6}->{flow}	= $ip6Flow;
-		$ref->{$primaryKey}->{ip6}->{plen}	= $ip6Plen;
-		$ref->{$primaryKey}->{ip6}->{nxt}	= $ip6Nxt;
-		$ref->{$primaryKey}->{ip6}->{hlim}	= $ip6Hlim;
-
-		$message = "IPv6 data:\n\tip6.src:$ip6SrcIp\n\tip6.dst:$ip6DstIp\n\tip6.class:$ip6Class\n\tip6.flow:$ip6Flow\n\tip6.plen:$ip6Plen\n\tip6.nxt:$ip6Nxt $ipProto\n\tip6.hlim:$ip6Hlim\n";
-		debugOut($message);
-
-
-	}
-
-
-	# IPv4 Assignment Tagging
-	if ($ipDstIp =~ /255/ || $ipSrcIp =~ /255/) {
-		addTag($primaryKey, 'BROADCAST');
-	}
-	if ($ipDstIp =~ /^22[3-9]|^23[0-9]/ || $ipSrcIp =~ /^22[3-9]|^23[0-9]/ ) { 	#223 - 239 = Multicast
-		addTag($primaryKey, 'MULTICAST');
-	}
-
-	#$ref->{$primaryKey}->{packets}++;
-
-	$ref->{$primaryKey}->{ip}->{dst} = $ipDstIp;
-	$ref->{$primaryKey}->{ip}->{src} = $ipSrcIp;
-	$ref->{$primaryKey}->{raw}->{ip}->{dst} = $ipDstIp;
-	$ref->{$primaryKey}->{raw}->{ip}->{src} = $ipSrcIp;
-	$ref->{$primaryKey}->{ip}->{ver} = $ipVer;
-	$ref->{$primaryKey}->{ip}->{foffset} = $ipFoffset;
-	$ref->{$primaryKey}->{ip}->{tos} = $ipTos;
-	$ref->{$primaryKey}->{ip}->{flags} = $ipFlags;
-	$ref->{$primaryKey}->{ip}->{len} = $ipLen;
-	$ref->{$primaryKey}->{ip}->{hlen} = $ipHlen;
-	$ref->{$primaryKey}->{ip}->{options} = $ipOptions;
-	$ref->{$primaryKey}->{ip}->{ttl} = $ipTtl;
-	$ref->{$primaryKey}->{ip}->{proto} = $ipProto;
-	$ref->{$primaryKey}->{ip}->{src} = $ipSrcIp;
-	$ref->{$primaryKey}->{raw}->{ip}->{src} = $ipSrcIp;
-	$ref->{$primaryKey}->{ip}->{cksum} = $ipCksum;
-
-	if ($recType eq 'dist') {	
-
-		unless (exists($ref->{$primaryKey}->{count}->{ip}->{len}->{$ipLen})) {
-			push(@{$ref->{$primaryKey}->{ip}->{len}}, $ipLen);
-		}
-		$ref->{$primaryKey}->{count}->{ip}->{len}->{$ipLen}++;
-
-		unless (exists($ref->{$primaryKey}->{count}->{ip}->{hlen}->{$ipHlen})) {
-			push(@{$ref->{$primaryKey}->{ip}->{hlen}}, $ipHlen);
-		}
-		$ref->{$primaryKey}->{count}->{ip}->{len}->{$ipLen}++;
-
-		unless (exists($ref->{$primaryKey}->{count}->{ip}->{options}->{$ipOptions})) {
-			push(@{$ref->{$primaryKey}->{ip}->{options}}, $ipOptions);
-		}
-		$ref->{$primaryKey}->{count}->{ip}->{len}->{$ipLen}++;
-	
-		unless (exists($ref->{$primaryKey}->{count}->{ip}->{ttl}->{$ipTtl})) {
-			push(@{$ref->{$primaryKey}->{ip}->{ttl}}, $ipTtl);
-		}
-		$ref->{$primaryKey}->{count}->{ip}->{ttl}->{$ipTtl}++;
-	
-		unless (exists($ref->{$primaryKey}->{count}->{ip}->{proto}->{$ipProto})) {
-			push(@{$ref->{$primaryKey}->{ip}->{proto}},$ipProto);
-		}
-		$ref->{$primaryKey}->{count}->{ip}->{proto}->{$ipProto}++;
-	
-		unless (exists($ref->{$primaryKey}->{count}->{ip}->{src}->{$ipSrcIpInt})) {
-			push(@{$ref->{$primaryKey}->{ip}->{src}}, $ipSrcIp);
-		}
-		$ref->{$primaryKey}->{count}->{ip}->{src}->{$ipSrcIpInt}++;
-		unless (exists($ref->{$primaryKey}->{count}->{ip}->{flags}->{$ipFlags})) {
-			push(@{$ref->{$primaryKey}->{ip}->{flags}}, $ipFlags);
-		}
-		$ref->{$primaryKey}->{count}->{ip}->{flags}->{$ipFlags}++;
-		unless (exists($ref->{$primaryKey}->{count}->{ip}->{foffset}->{$ipFoffset})) {
-			push(@{$ref->{$primaryKey}->{ip}->{foffset}}, $ipFoffset);
-		}
-		$ref->{$primaryKey}->{count}->{ip}->{foffset}->{$ipFoffset}++;
-		unless (exists($ref->{$primaryKey}->{count}->{ip}->{tos}->{$ipTos})) {
-			push(@{$ref->{$primaryKey}->{ip}->{tos}}, $ipTos);
-		}
-		$ref->{$primaryKey}->{count}->{ip}->{tos}->{$ipTos}++;
-		unless (exists($ref->{$primaryKey}->{count}->{ip}->{ver}->{$ipVer})) {
-			push(@{$ref->{$primaryKey}->{ip}->{ver}}, $ipVer);
-		}
-		$ref->{$primaryKey}->{count}->{ip}->{ver}->{$ipVer}++;
-	}
 	
         if ($ipProto eq "tcp") {
         	$tcp = NetPacket::TCP->decode($ip->{data});
@@ -646,90 +506,22 @@ sub callout {
 		}
 		$tcpFlag =~ s/:$//;
 		
-		$tcpDstPort	= $tcp->{dest_port};
-		$tcpSrcPort	= $tcp->{src_port};
-		$tcpWinsize	= $tcp->{winsize};
-		$tcpHlen	= $tcp->{hlen};
-		$tcpSeq		= $tcp->{seqnum};
-		$tcpAckNum	= $tcp->{acknum};
-		$tcpReserved	= $tcp->{reserved};
-		$tcpCksum	= $tcp->{cksum};
-		$tcpUrg		= $tcp->{urg};
-		$tcpOptions	= $tcp->{options};
-
-		$ref->{$primaryKey}->{tcp}->{reserved}		= $tcpReserved;
-		$ref->{$primaryKey}->{tcp}->{cksum}		= $tcpCksum;
-		$ref->{$primaryKey}->{tcp}->{urg}		= $tcpUrg;
-		#$ref->{$primaryKey}->{tcp}->{options}		= $tcpOptions;
-		$ref->{$primaryKey}->{tcp}->{acknum}		= $tcpAckNum;
+		$ref->{$primaryKey}->{tcp}->{reserved}		= $tcp->{reserved};
+		$ref->{$primaryKey}->{tcp}->{cksum}		= $tcp->{cksum};
+		$ref->{$primaryKey}->{tcp}->{urg}		= $tcp->{urg};
+		#$ref->{$primaryKey}->{tcp}->{options}		= $tcp->{options};
+		$ref->{$primaryKey}->{tcp}->{acknum}		= $tcp->{acknum};
 		$ref->{$primaryKey}->{tcp}->{flags}		= $tcpFlag;
-		$ref->{$primaryKey}->{tcp}->{hlen}		= $tcpHlen;
-		$ref->{$primaryKey}->{tcp}->{dstport}		= $tcpDstPort;
-		$ref->{$primaryKey}->{tcp}->{srcport}		= $tcpSrcPort;
-		$ref->{$primaryKey}->{tcp}->{seq}		= $tcpSeq;
-		$ref->{$primaryKey}->{tcp}->{window_size}	= $tcpWinsize;
+		$ref->{$primaryKey}->{tcp}->{hlen}		= $tcp->{hlen};
+		$ref->{$primaryKey}->{tcp}->{dstport}		= $tcp->{dest_port};
+		$ref->{$primaryKey}->{tcp}->{srcport}		= $tcp->{src_port};
+		$ref->{$primaryKey}->{tcp}->{seq}		= $tcp->{seqnum};
+		$ref->{$primaryKey}->{tcp}->{window_size}	= $tcp->{winsize};
 
 		if ($payload == 1) {
 			if ($tcp->{data}) {
 				$ref->{$primaryKey}->{tcp}->{data} = getClean($tcp->{data});
 			}
-		}
-
-		if ($recType eq 'dist') {
-			unless (exists($ref->{$primaryKey}->{count}->{tcp}->{reserved}->{$tcpReserved})) {
-				push(@{$ref->{$primaryKey}->{tcp}->{reserved}}, $tcpReserved);
-			}
-			$ref->{$primaryKey}->{count}->{tcp}->{reserved}->{$tcpReserved}++;
-	
-			#unless (exists($ref->{$primaryKey}->{count}->{tcp}->{cksum}->{$tcpCksum})) {
-			#	push(@{$ref->{$primaryKey}->{tcp}->{cksum}}, $tcpCksum);
-			#}
-			#$ref->{$primaryKey}->{count}->{tcp}->{cksum}->{$tcpCksum}++;
-	
-			unless (exists($ref->{$primaryKey}->{count}->{tcp}->{urg}->{$tcpUrg})) {
-				push(@{$ref->{$primaryKey}->{tcp}->{urg}}, $tcpUrg);
-			}
-			$ref->{$primaryKey}->{count}->{tcp}->{urg}->{$tcpUrg}++;
-
-			#unless (exists($ref->{$primaryKey}->{count}->{tcp}->{options}->{$tcpOptions})) {
-			#	push(@{$ref->{$primaryKey}->{tcp}->{options}}, $tcpOptions);
-			#}
-			#$ref->{$primaryKey}->{count}->{tcp}->{options}->{$tcpOptions}++;
-	
-			#unless (exists($ref->{$primaryKey}->{count}->{tcp}->{acknum}->{$tcpAckNum})) {
-			#	push(@{$ref->{$primaryKey}->{tcp}->{acknum}}, $tcpAckNum);
-			#}
-			#$ref->{$primaryKey}->{count}->{tcp}->{acknum}->{$tcpAckNum}++;
-	
-			unless (exists($ref->{$primaryKey}->{count}->{tcp}->{flags}->{$tcpFlag})) {
-				push(@{$ref->{$primaryKey}->{tcp}->{flags}}, $tcpFlag);
-			}
-			$ref->{$primaryKey}->{count}->{tcp}->{flags}->{$tcpFlag}++;
-	
-			#unless (exists($ref->{$primaryKey}->{count}->{tcp}->{hlen}->{$tcpHlen})) {
-			#	push(@{$ref->{$primaryKey}->{tcp}->{hlen}}, $tcpHlen);
-			#}
-			#$ref->{$primaryKey}->{count}->{tcp}->{hlen}->{$tcpHlen}++;
-	
-			unless (exists($ref->{$primaryKey}->{count}->{tcp}->{dstport}->{$tcpDstPort})) {
-				push(@{$ref->{$primaryKey}->{tcp}->{dstport}}, $tcpDstPort);
-			}
-			$ref->{$primaryKey}->{count}->{tcp}->{dstport}->{$tcpDstPort}++;
-	
-			unless (exists($ref->{$primaryKey}->{count}->{tcp}->{srcport}->{$tcpSrcPort})) {
-				push(@{$ref->{$primaryKey}->{tcp}->{srcport}}, $tcpSrcPort);
-			}
-			$ref->{$primaryKey}->{count}->{tcp}->{srcport}->{$tcpSrcPort}++;
-	
-			#unless (exists($ref->{$primaryKey}->{count}->{tcp}->{seq}->{$tcpSeq})) {
-				#push(@{$ref->{$primaryKey}->{tcp}->{seq}, $tcpSeq);
-			#}
-			#$ref->{$primaryKey}->{count}->{tcp}->{seq}->{$tcpSeq}++;
-	
-			unless (exists($ref->{$primaryKey}->{count}->{tcp}->{window_size}->{$tcpWinsize})) {
-				push(@{$ref->{$primaryKey}->{tcp}->{window_size}}, $tcpWinsize);
-			}
-			$ref->{$primaryKey}->{count}->{tcp}->{window_size}->{$tcpWinsize}++;
 		}
 
 		# L7 inspection modules
@@ -740,7 +532,7 @@ sub callout {
                         }
 
 			# SSH Straffic
-                        if ($tcp->{data} =~ /^ssh-[12]\.[0-9]/i) {
+                        if ($ref->{$primaryKey}->{tcp}->{dstport} == 22 || $ref->{$primaryKey}->{tcp}->{srcport} == 22 || $tcp->{data} =~ /^ssh-[12]\.[0-9]/i) {
 				$ref->{$primaryKey}->{l7}->{proto} = "ssh";
                         }
 
@@ -755,7 +547,7 @@ sub callout {
                         }
 
 			# SSL Traffic
-                        if ($tcp->{data} =~ /^(.?.?\x16\x03.*\x16\x03|.?.?\x01\x03\x01?.*\x0b)/) {
+                        if ($tcp->{data} =~ /^(.?.?\x16\x03.*\x16\x03|.?.?\x01\x03\x01?.*\x0b)|(3t.?.?.?.?.?.?.?.?.?.?h2.?http\/1\.1.?.?)/) {
 				$ref->{$primaryKey}->{l7}->{proto} = "ssl";
                         }
 
@@ -770,32 +562,7 @@ sub callout {
 				$ref->{$primaryKey}->{http}->{request}->{uri} = $methodData[1];
 				$ref->{$primaryKey}->{http}->{request}->{version} = $methodData[2];
 
-				$message = "\tLayer7 data:\n\t\thttp.request.method:$ref->{$primaryKey}->{http}->{request}->{method}\n\t\thttp.request.uri:$ref->{$primaryKey}->{http}->{request}->{uri}\n\t\thttp.request.version:$ref->{$primaryKey}->{http}->{request}->{version}\n"; 
-				debugOut($message);
-
-				if ($recType eq 'dist') {
-					$ref->{$primaryKey}->{count}->{l7}->{proto}->{http}++;
-					$ref->{$primaryKey}->{count}->{http}->{request}->{method}->{$methodData[0]}++;
-					my $byteSize = length($methodData[1]);
-					if ($byteSize >= 220) {
-						$ref->{$primaryKey}->{count}->{l7}->{http}->{request}->{uri}->{bytebucket}->{220}++;
-					} elsif ($byteSize >= 160) {
-						$ref->{$primaryKey}->{count}->{l7}->{http}->{request}->{uri}->{bytebucket}->{160}++;
-					} elsif ($byteSize >= 80) {
-						$ref->{$primaryKey}->{count}->{l7}->{http}->{request}->{uri}->{bytebucket}->{80}++;
-					} elsif ($byteSize >= 40) {
-						$ref->{$primaryKey}->{count}->{l7}->{http}->{request}->{uri}->{bytebucket}->{40}++;
-					} elsif ($byteSize >= 20) {
-						$ref->{$primaryKey}->{count}->{l7}->{http}->{request}->{uri}->{bytebucket}->{20}++;
-					} elsif ($byteSize >= 10) {
-						$ref->{$primaryKey}->{count}->{l7}->{http}->{request}->{uri}->{bytebucket}->{10}++;
-					} elsif ($byteSize > 0) {
-						$ref->{$primaryKey}->{count}->{l7}->{http}->{request}->{uri}->{bytebucket}->{0}++;
-					}
-				}
-
 				#$ref->{$primaryKey}->{count}->{http}->{request}->{uri}->{$methodData[1]}++;
-
 				foreach (@lines) {
 					if ($_ !~ /:/) {
 						next;
@@ -812,45 +579,6 @@ sub callout {
 
 					$ref->{$primaryKey}->{http}->{header}->{$header} = $headerContent;
 
-					$message = "\t\thttp.header:$ref->{$primaryKey}->{http}->{header}->{$header}\n";
-					debugOut($message);
-
-					if ($recType eq "dist") {
-						if ($header eq "cookie") {
-							my $hrefName = "httpHeader".$header."BucketDist";
-							my $byteSize = length($header);
-				                        #$ref->{$primaryKey}->{$hrefName};
-			        	                if ($byteSize >= 220) {
-			                	                $ref->{$primaryKey}->{count}->{$hrefName}->{220}++;
-			                        	        $ref->{sum}->{$hrefName}->{220}++;
-				                        } elsif ($byteSize >= 160) {
-				                                $ref->{$primaryKey}->{count}->{$hrefName}->{160}++;
-				                                $ref->{sum}->{$hrefName}->{160}++;
-	        			                } elsif ($byteSize >= 80) {
-	                			                $ref->{$primaryKey}->{count}->{$hrefName}->{80}++;
-	                			                $ref->{sum}->{$hrefName}->{80}++;
-	                			        } elsif ($byteSize >= 40) {
-	                			                $ref->{$primaryKey}->{count}->{$hrefName}->{40}++;
-	                			                $ref->{sum}->{$hrefName}->{40}++;
-	                			        } elsif ($byteSize >= 20) {
-	                			                $ref->{$primaryKey}->{count}->{$hrefName}->{20}++;
-	                			                $ref->{sum}->{$hrefName}->{20}++;
-	                			        } elsif ($byteSize >= 10) {
-	                			                $ref->{$primaryKey}->{count}->{$hrefName}->{10}++;
-	                			                $ref->{sum}->{$hrefName}->{10}++;
-	                			        } elsif ($byteSize > 0) {
-								$ref->{$primaryKey}->{count}->{$hrefName}->{0}++;
-								$ref->{sum}->{count}->{$hrefName}->{0}++;
-							}
-							next;
-						}
-
-						my $hrefName = "httpHeader".$header."Dist";
-						#$ref->{$primaryKey}->{$hrefName};
-						$ref->{$primaryKey}->{count}->{$hrefName}->{$headerContent}++;
-						$ref->{sum}->{$hrefName}->{$headerContent}++;
-						#print "$header $headerContent\n";
-					}
 				}
 			}
 			
@@ -864,9 +592,6 @@ sub callout {
 				$ref->{$primaryKey}->{http}->{response}->{version} = $resVersion;
 				$ref->{$primaryKey}->{http}->{response}->{code} = $resCode;
 				$ref->{$primaryKey}->{http}->{response}->{status} = $resStatus;
-
-				$message = "\t\thttp.response.version:$ref->{$primaryKey}->{http}->{response}->{version}\n\t\thttp.response.code:$ref->{$primaryKey}->{http}->{response}->{code}\n\t\thttp.response.status:$ref->{$primaryKey}->{http}->{response}->{status}\n";
-				debugOut($message);
 
 				foreach (@lines) {
 					my $line = $_;
@@ -886,13 +611,9 @@ sub callout {
 		}
         } elsif ($ipProto eq "udp") {
         	$udp = NetPacket::UDP->decode($ip->{data});
-		$udpDstPort = $udp->{dest_port};
-		$udpSrcPort = $udp->{src_port};
-		$udpLen	    = $udp->{len};
-
-		$ref->{$primaryKey}->{udp}->{dstport} = $udpDstPort;
-		$ref->{$primaryKey}->{udp}->{srcport} = $udpSrcPort;
-		$ref->{$primaryKey}->{udp}->{len} = $udpLen;
+		$ref->{$primaryKey}->{udp}->{dstport}	= $udp->{dest_port};
+		$ref->{$primaryKey}->{udp}->{srcport}	= $udp->{src_port};
+		$ref->{$primaryKey}->{udp}->{len}	= $udp->{len};
 
 		if ($payload == 1) {
 			if ($udp->{data}) {
@@ -900,67 +621,28 @@ sub callout {
 			}
 		}
 		# DNS Traffic
-		if (($udpSrcPort == 53 || $udpDstPort == 53) && $udp->{data} =~ /^.?.?.?.?[\x01\x02].?.?.?.?.?.?/) {
+		if ($ref->{$primaryKey}->{udp}->{dstport} == 53 || $ref->{$primaryKey}->{udp}->{srcport} == 53 || $udp->{data} =~ /^.?.?.?.?[\x01\x02].?.?.?.?.?.?/) {
 			$ref->{$primaryKey}->{l7}->{proto} = "dns";
                 }
 
-		if ($recType eq 'dist') {
-			unless (exists($ref->{$primaryKey}->{count}->{udp}->{dstport}->{$udpDstPort})) {
-				push(@{$ref->{$primaryKey}->{udp}->{dstport}}, $udpDstPort);
-			}
-			$ref->{$primaryKey}->{count}->{udp}->{dstport}->{$udpDstPort}++;
-	
-			unless (exists($ref->{$primaryKey}->{count}->{udp}->{srcport}->{$udpSrcPort})) {
-				push(@{$ref->{$primaryKey}->{udp}->{srcport}}, $udpSrcPort);
-			}
-			$ref->{$primaryKey}->{count}->{udp}->{srcport}->{$udpSrcPort}++;
-	
-			#unless (exists($ref->{$primaryKey}->{count}->{udp}->{len}->{$udpLen})) {
-			#	push(@{$ref->{$primaryKey}->{udp}->{len}}, $udpLen);
-			#}
-			#$ref->{$primaryKey}->{count}->{udp}->{len}->{$udpLen}++;
-	
-		}
-
-		$message = "\tUDP data:\n\t\tudp.dstport:$ref->{$primaryKey}->{udp}->{dstport}\n\t\tudp.srcport:$ref->{$primaryKey}->{udp}->{srcport}\n\t\tudp.len:$ref->{$primaryKey}->{udp}->{len}\n";
-		debugOut($message);
-	
-	
         } elsif ($ipProto eq "icmp") {
         	$icmp = NetPacket::ICMP->decode($ip->{data});
-		$icmpType = $icmp->{type};
-		$icmpCode = $icmp->{code};
-		$icmpData = $icmp->{data};
+		$ref->{$primaryKey}->{icmp}->{type} = $icmp->{type};
+		$ref->{$primaryKey}->{icmp}->{code} = $icmp->{code};
 
-		$ref->{$primaryKey}->{icmp}->{type} = $icmpType;
-		$ref->{$primaryKey}->{icmp}->{code} = $icmpCode;
 		if ($payload == 1) {
 			if ($icmp->{data}) {
 				$ref->{$primaryKey}->{icmp}->{data} = getClean($icmp->{data});
 			}
 		}
 
-		if ($recType eq 'dist') {
-
-		}
-
-		$message =  "\tICMP data:\n\t\ticmp.type:$ref->{$primaryKey}->{icmp}->{type}\n\t\ticmp.code:$ref->{$primaryKey}->{icmp}->{code}\n\t\ticmp.data:$ref->{$primaryKey}->{icmp}->{data}\n";
-		debugOut($message);
-
 	} elsif ($ipProto eq "igmp") {
         	$igmp = NetPacket::IGMP->decode($ip->{data});
-		$igmpVersion = $igmp->{version};
-		$igmpType = $igmp->{type};
-		$igmpLen = $igmp->{len};
-		$igmpSubtype = $igmp->{subtype};
-		$igmpGroupAddr = $igmp->{group_addr};
-		$igmpData = $igmp->{data};
-
-		$ref->{$primaryKey}->{igmp}->{version} = $igmpVersion;
-		$ref->{$primaryKey}->{igmp}->{type} = $igmpType;
-		$ref->{$primaryKey}->{igmp}->{len} = $igmpLen;
-		$ref->{$primaryKey}->{igmp}->{subtype} = $igmpSubtype;
-		$ref->{$primaryKey}->{igmp}->{group_addr} = $igmpGroupAddr;
+		$ref->{$primaryKey}->{igmp}->{version}		= $igmp->{version};
+		$ref->{$primaryKey}->{igmp}->{type}		= $igmp->{type};
+		$ref->{$primaryKey}->{igmp}->{len}		= $igmp->{len};
+		$ref->{$primaryKey}->{igmp}->{subtype}		= $igmp->{subtype};
+		$ref->{$primaryKey}->{igmp}->{group_addr}	= $igmp->{group_addr};
 
 		if ($payload == 1) {
 			if ($igmp->{data}) {
@@ -968,17 +650,7 @@ sub callout {
 			}
 		}
 
-		if ($recType eq 'dist') {
-
-		}
-
-		$message = "\tIGMP data:\n\t\tigmp.version:$ref->{$primaryKey}->{igmp}->{version}\n\t\tigmp.type:$ref->{$primaryKey}->{igmp}->{type}\n\t\tigmp.len:$ref->{$primaryKey}->{igmp}->{len}\n\t\tigmp.subtype:$ref->{$primaryKey}->{igmp}->{subtype}\n\t\tigmp.group_addr:$ref->{$primaryKey}->{igmp}->{group_addr}\n\t\tigmp.data:$ref->{$primaryKey}->{igmp}->{data}\n";
-		debugOut($message);
-
 	}
-
-	$message = "\tl7.proto:$ref->{$primaryKey}->{l7}->{proto}\n";
-	debugOut($message);
 
 	# Process Combination Strings
 	#my $combo = "$ipProto:$ipLen:$ipTtl:$tcpFlag:$tcpWinsize:$tcpSrcPort:$tcpDstPort:$udpSrcPort:$udpDstPort";
@@ -987,6 +659,7 @@ sub callout {
 		#push(@{$ref->{$primaryKey}->{combo}}, $combo);
 	#}
 }
+
 logIt("stopped. $counter packets processed.");
 
 
@@ -1003,8 +676,6 @@ sub addTag {
 		}
 
 		push(@{$ref->{$pkey}->{tags}}, "$tag");
-		$message = "TAG:\t$tag\n";
-		debugOut($message);
 	}
 	return;
 }
@@ -1016,10 +687,6 @@ sub getClean {
 	my $mess = shift;
 	if ($payload == 1) {
 		my $getBits = $plBits;
-		#if ($ref->{$primaryKey}->{l7}->{proto} == "http") {
-		#	$getBits = "2048";
-		#}
-			
 		$mess =~ s/\n|\r|\x0D/\./g;
 		$mess =~ s/[^[:ascii:]]|[^[:print:]]/\./g;
 		$mess = substr($mess, 0, $getBits);
@@ -1099,7 +766,6 @@ sub debugOut {
 		print "$message";
 	}
 }
-
 
 #####################################
 # help output 
