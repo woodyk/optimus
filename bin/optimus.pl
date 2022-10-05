@@ -20,15 +20,15 @@ use Sys::Syslog;
 use LWP::UserAgent;
 use Net::IPAddress;
 use Net::CIDR::Lite;
-use NetPacket::IP;
-use NetPacket::ARP;
-use NetPacket::TCP;
-use NetPacket::UDP;
-use NetPacket::ICMP;
-use NetPacket::IGMP;
-use NetPacket::Ethernet;
-use NetPacket::IPv6;
-#use Netpacket::ICMPv6;
+use NetPacket::IP qw(:strip);
+use NetPacket::ARP qw(:strip);
+use NetPacket::TCP qw(:strip);
+use NetPacket::UDP qw(:strip);
+use NetPacket::ICMP qw(:strip);
+use NetPacket::IGMP qw(:strip);
+use NetPacket::Ethernet qw(:strip);
+use NetPacket::IPv6 qw(:strip);
+use NetPacket::ICMPv6 qw(:strip);
 use Search::Elasticsearch;
 use MaxMind::DB::Reader;
 use IPC::Open3;
@@ -246,26 +246,15 @@ sub output {
 		$counter++;	
 		
 		$ref->{$key}->{hostname} = $hostname;
-		$ref->{$key}->{int} = $interface;
+		$ref->{$key}->{interface} = $interface;
 		$ref->{$key}->{datasource} = $dataSource;
-
-		my $srcAddy;
-		my $dstAddy;
-
-		if ($ref->{$key}->{ip}->{ver} == 4) {
-			$srcAddy = $ref->{$key}->{ip}->{src};
-			$dstAddy = $ref->{$key}->{ip}->{dst};
-		} elsif ($ref->{$key}->{ip}->{ver} == 6) {
-			$srcAddy = $ref->{$key}->{ip6}->{src};
-			$dstAddy = $ref->{$key}->{ip6}->{dst};
-		}
 
 		$json->indent();
 		if ($geoIp == 1) {
 			my $record;
 
-			if ($srcAddy) {
-				if ($record = $gi->record_for_address($srcAddy)) {
+			if ($ref->{$key}->{ip}->{src}) {
+				if ($record = $gi->record_for_address($ref->{$key}->{ip}->{src})) {
 					$ref->{$key}->{geoip}->{src}->{country_code} = $record->{country}->{iso_code};
 					$ref->{$key}->{geoip}->{src}->{country_name} = $record->{country}->{names}->{en};
 					$ref->{$key}->{geoip}->{src}->{city} = $record->{city}->{names}->{en};
@@ -278,8 +267,8 @@ sub output {
 				}
 			}
 
-			if ($dstAddy) {
-				if ($record = $gi->record_for_address($dstAddy)) {
+			if ($ref->{$key}->{ip}->{dst}) {
+				if ($record = $gi->record_for_address($ref->{$key}->{ip}->{dst})) {
 					$ref->{$key}->{geoip}->{dst}->{country_code} = $record->{country}->{iso_code};
 					$ref->{$key}->{geoip}->{dst}->{country_name} = $record->{country}->{names}->{en};
 					$ref->{$key}->{geoip}->{dst}->{city} = $record->{city}->{names}->{en};
@@ -295,17 +284,18 @@ sub output {
 		}
 
 		if ($nameLookup == 1) {	
-			$ref->{$key}->{dns}->{src} = revDns($srcAddy);
-			$ref->{$key}->{dns}->{dst} = revDns($dstAddy);
+			$ref->{$key}->{dns}->{src} = revDns($ref->{$key}->{ip}->{src});
+			$ref->{$key}->{dns}->{dst} = revDns($ref->{$key}->{ip}->{dst});
 		}
 			
-		my $jsonOut = $json->utf8->encode($ref->{$key});
 		if ($elastic == 1) {
 			$bulk->create({ index 	=> $indexname,
 					type  	=> '_doc',
 					id	=> $key,
 					source	=> $ref->{$key} });
 		}
+
+		my $jsonOut = $json->utf8->encode($ref->{$key});
 
 		if ($displayJson == 1) {
 			print "$jsonOut\n";
@@ -385,7 +375,7 @@ sub callout {
 	my $udp;
 
 	# ICMP declarations
-	my $icmp;
+	my ($icmp, $icmpV6);
 
 	# IGMP declarations
 	my $igmp;
@@ -400,6 +390,12 @@ sub callout {
 
         my $ipAddressForBeanCounter = "UNKNOWN";
 	my $ipProto = "UNKNOWN";
+	$ref->{$primaryKey}->{protos}->{l2}   = "unknown";
+	$ref->{$primaryKey}->{protos}->{l3}   = "unknown";
+	$ref->{$primaryKey}->{protos}->{l4}   = "unknown";
+	$ref->{$primaryKey}->{protos}->{l5}   = "unknown";
+	$ref->{$primaryKey}->{protos}->{l6}   = "unknown";
+	$ref->{$primaryKey}->{protos}->{l7}   = "unknown";
 
 	# Set the time to the current minute rounded down to the first second.
 	$mtime = time() - (time() % 60);
@@ -413,7 +409,7 @@ sub callout {
 	if ($eth_obj->{type} == "2054" && $l2Enable == 1) {
 		my $arp_obj = NetPacket::ARP->decode($eth_obj->{data}, $eth_obj);
 
-		$ref->{$primaryKey}->{l2}->{proto}   = "arp";
+		$ref->{$primaryKey}->{protos}->{l2}   = "arp";
 		$ref->{$primaryKey}->{arp}->{htype}  = $arp_obj->{htype};
 		$ref->{$primaryKey}->{arp}->{proto}  = $arp_obj->{proto};
 		$ref->{$primaryKey}->{arp}->{hlen}   = $arp_obj->{hlen};
@@ -425,12 +421,15 @@ sub callout {
 
 	}
 
-	$ip		= NetPacket::IP->decode($ether);
-	$ref->{$primaryKey}->{ip}->{ver} 	= $ip->{ver};
+	$ip = NetPacket::IP->decode($ether);
 
 	if ($ip->{ver} == 4) {
+		
+		$ref->{$primaryKey}->{protos}->{l3} = "ip";
+
 		if (defined($ip->{proto})) {
 			$ipProto = getprotobynumber($ip->{proto});
+			$ref->{$primaryKey}->{ip}->{proto} = $ipProto;
 		}
 
 		$ref->{$primaryKey}->{ip}->{dst} 	= $ip->{dest_ip};
@@ -443,7 +442,7 @@ sub callout {
 		$ref->{$primaryKey}->{ip}->{options} 	= $ip->{options};
 		$ref->{$primaryKey}->{ip}->{ttl} 	= $ip->{ttl};
 		$ref->{$primaryKey}->{ip}->{cksum} 	= $ip->{cksum};
-		$ref->{$primaryKey}->{ip}->{proto}	= $ipProto;
+		$ref->{$primaryKey}->{ip}->{ver} 	= $ip->{ver};
 		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip}->{dst};
 
 		# IPv4 Assignment Tagging       
@@ -457,20 +456,25 @@ sub callout {
 	
 
 	if ($ip->{ver} == 6 && $ip6Enable == 1) {
+
+		$ref->{$primaryKey}->{protos}->{l3} = "ipv6";
+
   		$ip6 = NetPacket::IPv6->decode($ether);
 
-		if (defined($ip6->{nxt})) {
-        		$ipProto = getprotobynumber($ip6->{nxt});
-		} 
-		$ref->{$primaryKey}->{ip6}->{src}       = $ip6->{src_ip};
-                $ref->{$primaryKey}->{ip6}->{dst}       = $ip6->{dest_ip};
-                $ref->{$primaryKey}->{ip6}->{class}     = $ip6->{class};
-                $ref->{$primaryKey}->{ip6}->{flow}      = $ip6->{flow};
-                $ref->{$primaryKey}->{ip6}->{plen}      = $ip6->{plen};
-                $ref->{$primaryKey}->{ip6}->{nxt}       = $ip6->{nxt};
-                $ref->{$primaryKey}->{ip6}->{hlim}      = $ip6->{hlim};
-		$ref->{$primaryKey}->{ip6}->{proto}	= $ipProto;
-		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip6}->{dst};
+		if (defined($ip6->{proto})) {
+        		$ipProto = getprotobynumber($ip6->{proto});
+			$ref->{$primaryKey}->{ip}->{proto} = $ipProto;
+		}
+		$ref->{$primaryKey}->{ip}->{src}       	= $ip6->{src_ip};
+                $ref->{$primaryKey}->{ip}->{dst}       	= $ip6->{dest_ip};
+                $ref->{$primaryKey}->{ip}->{class}     	= $ip6->{traffic_class};
+                $ref->{$primaryKey}->{ip}->{flow}      	= $ip6->{flow_label};
+                $ref->{$primaryKey}->{ip}->{hop_limit} 	= $ip6->{hop_limit};
+                $ref->{$primaryKey}->{ip}->{ver}	= $ip6->{ver};
+                $ref->{$primaryKey}->{ip}->{len} 	= $ip6->{len};
+                $ref->{$primaryKey}->{ip}->{type}	= $ip6->{type};
+		
+		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip}->{dst};
 
 	}
 	
@@ -514,6 +518,9 @@ sub callout {
 	
         if ($ipProto eq "tcp") {
         	$tcp = NetPacket::TCP->decode($ip->{data});
+
+		$ref->{$primaryKey}->{protos}->{l4} = "tcp";
+
 		# TCP flag inspection module
 		$ref->{$primaryKey}->{tcp}->{flag}->{FIN} = "false";
 		$ref->{$primaryKey}->{tcp}->{flag}->{SYN} = "false";
@@ -554,27 +561,27 @@ sub callout {
 		if ($l7Enable == 1) {
 			# BGP traffic
 			if ($tcp->{data} =~ /^\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff..?\x01[\x03\x04]/) {
-				$ref->{$primaryKey}->{l7}->{proto} = "bgp";
+				$ref->{$primaryKey}->{protos}->{l7} = "bgp";
                         }
 
 			# SSH Straffic
                         if ($ref->{$primaryKey}->{tcp}->{dstport} == 22 || $ref->{$primaryKey}->{tcp}->{srcport} == 22 || $tcp->{data} =~ /^ssh-[12]\.[0-9]/i) {
-				$ref->{$primaryKey}->{l7}->{proto} = "ssh";
+				$ref->{$primaryKey}->{protos}->{l7} = "ssh";
                         }
 
 			# TOR Traffic
                         if ($tcp->{data} =~ /TOR1.*<identity>/) {
-				$ref->{$primaryKey}->{l7}->{proto} = "tor";
+				$ref->{$primaryKey}->{protos}->{l7} = "tor";
                         }
 
 			# Jabber Traffic
                         if ($tcp->{data} =~ /<stream:stream[\x09-\x0d ][ -~]*[\x09-\x0d ]xmlns=['"]jabber/) {
-				$ref->{$primaryKey}->{l7}->{proto} = "jabber";
+				$ref->{$primaryKey}->{protos}->{l7} = "jabber";
                         }
 
 			# SSL Traffic
                         if ($tcp->{data} =~ /^(.?.?\x16\x03.*\x16\x03|.?.?\x01\x03\x01?.*\x0b)|(3t.?.?.?.?.?.?.?.?.?.?h2.?http\/1\.1.?.?)/) {
-				$ref->{$primaryKey}->{l7}->{proto} = "ssl";
+				$ref->{$primaryKey}->{protos}->{l7} = "ssl";
                         }
 
 			# HTTP Request	
@@ -583,7 +590,7 @@ sub callout {
 				my $methUri = shift(@lines);
 				my @methodData = split(" ", $methUri);
 
-				$ref->{$primaryKey}->{l7}->{proto} = 'http';
+				$ref->{$primaryKey}->{protos}->{l7} = 'http';
 				$ref->{$primaryKey}->{http}->{request}->{method} = $methodData[0];
 				$ref->{$primaryKey}->{http}->{request}->{uri} = $methodData[1];
 				$ref->{$primaryKey}->{http}->{request}->{version} = $methodData[2];
@@ -614,7 +621,7 @@ sub callout {
                                 my $responseHeader = shift(@lines);
                                 my ($resVersion, $resCode, $resStatus) = split(" ", $responseHeader);
 
-				$ref->{$primaryKey}->{l7}->{proto} = 'http';
+				$ref->{$primaryKey}->{protos}->{l7} = 'http';
 				$ref->{$primaryKey}->{http}->{response}->{version} = $resVersion;
 				$ref->{$primaryKey}->{http}->{response}->{code} = $resCode;
 				$ref->{$primaryKey}->{http}->{response}->{status} = $resStatus;
@@ -637,6 +644,9 @@ sub callout {
 		}
         } elsif ($ipProto eq "udp") {
         	$udp = NetPacket::UDP->decode($ip->{data});
+
+		$ref->{$primaryKey}->{protos}->{l4} = "udp";
+
 		$ref->{$primaryKey}->{udp}->{dstport}	= $udp->{dest_port};
 		$ref->{$primaryKey}->{udp}->{srcport}	= $udp->{src_port};
 		$ref->{$primaryKey}->{udp}->{len}	= $udp->{len};
@@ -648,11 +658,14 @@ sub callout {
 		}
 		# DNS Traffic
 		if ($ref->{$primaryKey}->{udp}->{dstport} == 53 || $ref->{$primaryKey}->{udp}->{srcport} == 53 || $udp->{data} =~ /^.?.?.?.?[\x01\x02].?.?.?.?.?.?/) {
-			$ref->{$primaryKey}->{l7}->{proto} = "dns";
+			$ref->{$primaryKey}->{protos}->{l7} = "dns";
                 }
 
         } elsif ($ipProto eq "icmp") {
         	$icmp = NetPacket::ICMP->decode($ip->{data});
+
+		$ref->{$primaryKey}->{protos}->{l3} = "icmp";
+
 		$ref->{$primaryKey}->{icmp}->{type} = $icmp->{type};
 		$ref->{$primaryKey}->{icmp}->{code} = $icmp->{code};
 
@@ -661,9 +674,27 @@ sub callout {
 				$ref->{$primaryKey}->{icmp}->{data} = getClean($icmp->{data});
 			}
 		}
+		
+	} elsif ($ipProto eq "ipv6-icmp") {
+		$icmpV6 = NetPacket::ICMPv6->decode(ipv6_strip(eth_strip($packet)));
+
+		$ref->{$primaryKey}->{protos}->{l3} = "ipv6-icmp";
+
+		$ref->{$primaryKey}->{'ipv6-icmp'}->{type} = $icmpV6->{type};
+		$ref->{$primaryKey}->{'ipv6-icmp'}->{code} = $icmpV6->{code};
+		$ref->{$primaryKey}->{'ipv6-icmp'}->{cksum} = $icmpV6->{cksum};
+
+		if ($payload == 1) {
+			if ($icmpV6->{data}) {
+				$ref->{$primaryKey}->{'ipv6-icmp'}->{data} = getClean($icmpV6->{data});
+			}
+		}
 
 	} elsif ($ipProto eq "igmp") {
         	$igmp = NetPacket::IGMP->decode($ip->{data});
+
+		$ref->{$primaryKey}->{protos}->{l3} = "igmp";
+
 		$ref->{$primaryKey}->{igmp}->{version}		= $igmp->{version};
 		$ref->{$primaryKey}->{igmp}->{type}		= $igmp->{type};
 		$ref->{$primaryKey}->{igmp}->{len}		= $igmp->{len};
@@ -675,21 +706,8 @@ sub callout {
 				$ref->{$primaryKey}->{igmp}->{data} = getClean($igmp->{data});
 			}
 		}
-
 	}
 
-	#if ($l7Enable == 1) {
-	#	my $pattern;
-	#	foreach (keys(%patterns)) {
-	#		$pattern = qr/$patterns{$_}/;
-	#		if ($_ =~ /unknown|unset/) {
-	#			next;
-	#		}
-	#		if ($ref->{$primaryKey}->{raw}->{data} =~ /$pattern/) {
-	#			$ref->{$primaryKey}->{l7}->{proto} = $_;
-	#		}
-	#	}
-	#}
 	
 }
 
@@ -790,6 +808,21 @@ sub getPats {
 		}
 		$patterns{$name} = $value;
 	}
+
+	#if ($l7Enable == 1) {
+	#	my $pattern;
+	#	foreach (keys(%patterns)) {
+	#		$pattern = qr/$patterns{$_}/;
+	#		if ($_ =~ /unknown|unset/) {
+	#			next;
+	#		}
+	#		if ($ref->{$primaryKey}->{raw}->{data} =~ /$pattern/) {
+	#			$ref->{$primaryKey}->{l7}->{proto} = $_;
+	#		}
+	#	}
+	#}
+
+	return;
 }
 
 #####################################
@@ -802,7 +835,7 @@ sub logIt {
 		syslog("info|local0", $message);
 		closelog();
 	}
-	return(0);
+	return;
 }
 
 #####################################
@@ -813,7 +846,7 @@ sub debugOut {
 	if ($debug == 1) {
 		print "$message";
 	}
-	return(0);
+	return;
 }
 
 #####################################
