@@ -3,7 +3,6 @@
 requires 'JSON';
 requires 'POSIX';
 requires 'Socket';
-requires 'Geo::IP';
 requires 'Net::Pcap';
 requires 'Config::Tiny';
 requires 'UUID::Random';
@@ -24,3 +23,5 @@ requires 'NetPacket::Ethernet';
 requires 'NetPacket::IPv6';
 #requires 'Netpacket::ICMPv6';
 requires 'Search::Elasticsearch';
+requires 'MaxMind::DB::Reader';
+requires 'IPC::Open3';
