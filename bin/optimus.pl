@@ -3,13 +3,13 @@
 # network traffic distribution generator and indexer
 #
 
+use warnings;
 use strict;
 use bytes;
 use lib '../lib/perl5/lib';
 use JSON;
 use POSIX;
 use Socket;
-use Geo::IP;
 use Config::Tiny;
 use Getopt::Long;
 use Net::Pcap;
@@ -30,10 +30,12 @@ use NetPacket::Ethernet;
 use NetPacket::IPv6;
 #use Netpacket::ICMPv6;
 use Search::Elasticsearch;
+use MaxMind::DB::Reader;
+use IPC::Open3;
 
 my $confFile = '../etc/optimus.ini';
-my $config = Config::Tiny->new;
-$config = Config::Tiny->read($confFile, 'utf8');
+my $Config = Config::Tiny->new;
+my $config = Config::Tiny->read($confFile, 'utf8');
 #print Dumper $config;
 
 #####################################
@@ -74,8 +76,8 @@ my $maxPerDest	= $config->{'application'}->{'maxPerDest'};
 my $ip6Enable	= $config->{'application'}->{'ip6Enable'}; 
 my $l2Enable	= $config->{'application'}->{'l2Enable'};
 my $l7Enable	= $config->{'application'}->{'l7Enable'}; 
-my $geoip	= $config->{'application'}->{'geoip'}; 
-my $geoipDat	= $config->{'application'}->{'geoipDat'};
+my $geoIp	= $config->{'application'}->{'geoIp'}; 
+my $geoIpDb	= $config->{'application'}->{'geoIpDb'};
 my $nameLookup	= $config->{'application'}->{'nameLookup'};
 
 #####################################
@@ -88,14 +90,15 @@ my $ref; 				# data container for all the collected samples
 my $beanCounter;			# packet counter
 my $e;					# elasticsearch handle
 my $bulk;				# elasticsearch bulk handle
-my $cidr;
 my $gi;
 my %oui;
 my $primaryKey;
-my $offline;
+my $offline = 0;
 my $message;
 my $counter;
 my $pcapFile;
+my %patterns;
+my $geoIpType;
 
 # Get command line options.
 GetOptions(
@@ -110,17 +113,9 @@ GetOptions(
 	'logging'	=> sub { $logging = 1},
 	'revlookup'	=> sub { $nameLookup = 1; },
 );
-
 logIt("started.");
 
-if ($esNode !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}$/) {
-	$message = "error: IP address not valid.\n";
-	print "$message";
-	logIt($message);
-	exit;
-} 
-
-$ENV{TZ} = 'UTC';
+local $ENV{TZ} = 'UTC';
 my $hostname = hostname();
 
 #tcp flags: urg, ack, psh, rst, syn, fin, ece, cwr
@@ -131,7 +126,6 @@ my $hostname = hostname();
 #my @NetPacketUDP = qw( src_port dest_port len cksum data );
 #my @NetPacketEthernet = qw( src_mac dest_mac type data ); 
 #my @NetPacketARP = qw( htype proto hlen plen opcode sha spa tha tpa );
-
 
 #####################################
 # Overwrite Variables with Environment Settings if they exist.	
@@ -144,9 +138,9 @@ if ($ENV{OPTIMUS_INTERFACE}) {
 #####################################
 # Open Geo IP handle if enabled. 
 #####################################
-
-if ($geoip == 1) {
-	$gi = Geo::IP->open($geoipDat, GEOIP_STANDARD);
+if ($geoIp == 1) {
+	$gi = MaxMind::DB::Reader->new(file => $geoIpDb);
+	$geoIpType = "mmdb";
 }
 
 #####################################
@@ -160,18 +154,26 @@ if ($hwVendor == 1) {
 	my $oui_access 	  = (stat $ouiFile)[9];
 	my $oui_age    	  = ($epoch - $oui_access);
 	if ($oui_age >= $oui_sched || !-f $ouiFile) {
-		`wget -O $ouiFile $ouiUrl`;
+		my $chld_in;
+		my $pid = open3($chld_in, '>&STDOUT', '>&STDERR', "wget -O $ouiFile $ouiUrl") or die "Unable to execute command: $!\n";
+		waitpid($pid, 0);
 	}
 
         open (OUI, '<', "$ouiFile") or warn $!;
         foreach my $line (<OUI>) {
                 if ($line !~ /^\#/) {
                         my($address, $vendor, $vendor_long) = split(/\t+/, $line);
-			chomp($vendor_long);
-                        chomp($vendor);
-                        if ($vendor_long eq "") {
+
+			if ($vendor) {
+                        	chomp($vendor);
+			}
+
+			if ($vendor_long) {
+				chomp($vendor_long);
+                        } else {
                                 $vendor_long = $vendor;
                         }
+
 			$address =~ s/://g;
                         $oui{$address} = $vendor_long;
                 }
@@ -196,6 +198,10 @@ if (defined($pcapFile)) {
 	}
 }
 
+#if ($l7Enable == 1) {
+#	getPats();
+#}
+
 #####################################
 # Begin collection of samples.
 #####################################
@@ -211,6 +217,12 @@ sub output {
 	my $indexname = $esPrefix.$indexstamp;
 
 	if ($elastic == 1) {
+		if ($esNode !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}$/) {
+        		$message = "error: IP address not valid.\n";
+        		print "$message";
+        		logIt($message);
+        		exit;
+		}
 		$e = Search::Elasticsearch->new( nodes => $esNode ); 
 
 		unless ($e->indices->exists(index => "$indexname")) {
@@ -231,6 +243,7 @@ sub output {
 		if ($hashSize <= 1) {
 			next;
 		}
+		$counter++;	
 		
 		$ref->{$key}->{hostname} = $hostname;
 		$ref->{$key}->{int} = $interface;
@@ -248,22 +261,37 @@ sub output {
 		}
 
 		$json->indent();
-		if ($geoip == 1) {
-			if (my $record = $gi->record_by_addr("$srcAddy")) {
-				$ref->{$key}->{country_code} = $record->country_code;
-				$ref->{$key}->{country_code3} = $record->country_code3;
-				$ref->{$key}->{country_name} = $record->country_name;
-				$ref->{$key}->{region} = $record->region;
-				$ref->{$key}->{region_name} = $record->region_name;
-				$ref->{$key}->{city} = $record->city;
-				$ref->{$key}->{postal_code} = $record->postal_code;
-				$ref->{$key}->{location} = $record->latitude.",".$record->longitude;
-				$ref->{$key}->{time_zone} = $record->time_zone;
-				$ref->{$key}->{area_code} = $record->area_code; 
-				$ref->{$key}->{continent_code} = $record->continent_code;
-				$ref->{$key}->{metro_code} = $record->metro_code;
+		if ($geoIp == 1) {
+			my $record;
+
+			if ($srcAddy) {
+				if ($record = $gi->record_for_address($srcAddy)) {
+					$ref->{$key}->{geoip}->{src}->{country_code} = $record->{country}->{iso_code};
+					$ref->{$key}->{geoip}->{src}->{country_name} = $record->{country}->{names}->{en};
+					$ref->{$key}->{geoip}->{src}->{city} = $record->{city}->{names}->{en};
+					$ref->{$key}->{geoip}->{src}->{postal_code} = $record->{postal}->{code};
+					$ref->{$key}->{geoip}->{src}->{location} = $record->{location}->{latitude}.",".$record->{location}->{longitude};
+					$ref->{$key}->{geoip}->{src}->{time_zone} = $record->{location}->{time_zone};
+					$ref->{$key}->{geoip}->{src}->{continent_name} = $record->{continent}->{names}->{en};
+					$ref->{$key}->{geoip}->{src}->{subdivision_code} = $record->{subdivisions}[0]->{iso_code};
+					$ref->{$key}->{geoip}->{src}->{subdivision_name} = $record->{subdivisions}[0]->{names}->{en};
+				}
 			}
-			$counter++;	
+
+			if ($dstAddy) {
+				if ($record = $gi->record_for_address($dstAddy)) {
+					$ref->{$key}->{geoip}->{dst}->{country_code} = $record->{country}->{iso_code};
+					$ref->{$key}->{geoip}->{dst}->{country_name} = $record->{country}->{names}->{en};
+					$ref->{$key}->{geoip}->{dst}->{city} = $record->{city}->{names}->{en};
+					$ref->{$key}->{geoip}->{dst}->{postal_code} = $record->{postal}->{code};
+					$ref->{$key}->{geoip}->{dst}->{location} = $record->{location}->{latitude}.",".$record->{location}->{longitude};
+					$ref->{$key}->{geoip}->{dst}->{time_zone} = $record->{location}->{time_zone};
+					$ref->{$key}->{geoip}->{dst}->{continent_name} = $record->{continent}->{names}->{en};
+					$ref->{$key}->{geoip}->{dst}->{subdivision_code} = $record->{subdivisions}[0]->{iso_code};
+					$ref->{$key}->{geoip}->{dst}->{subdivision_name} = $record->{subdivisions}[0]->{names}->{en};
+				}
+			}
+
 		}
 
 		if ($nameLookup == 1) {	
@@ -345,7 +373,7 @@ sub callout {
 	my ($ether, $l2, $srcMac, $dstMac, $l2type);
 
 	# IP declarations
-	my ($ip, $ipProto, $ipSrcIp, $ipDstIp);
+	my $ip;
 
 	# IPv6 declarations
 	my $ip6;
@@ -363,18 +391,20 @@ sub callout {
 	my $igmp;
 
 	# Other declarations for sub callout
-	my $state;
 	my $packetTime;
 	my $mtime;
 	my $eth_obj;
+
+	# Assign a unique UUID for this packet.
+	$primaryKey = UUID::Random::generate;
+
+        my $ipAddressForBeanCounter = "UNKNOWN";
+	my $ipProto = "UNKNOWN";
 
 	# Set the time to the current minute rounded down to the first second.
 	$mtime = time() - (time() % 60);
 	$packetTime = strftime("%Y-%m-%dT%H:%M:%S", localtime($header->{tv_sec}));
 	$ref->{$primaryKey}->{date} = $packetTime;
-
-	# Possible states are UNKNOWN, SUSPECT, CLEAN, DIRTY
-	$state = "UNKNOWN";
 
         $ether		= NetPacket::Ethernet::strip($packet);
 	$eth_obj	= NetPacket::Ethernet->decode($packet);
@@ -396,14 +426,15 @@ sub callout {
 	}
 
 	$ip		= NetPacket::IP->decode($ether);
+	$ref->{$primaryKey}->{ip}->{ver} 	= $ip->{ver};
 
 	if ($ip->{ver} == 4) {
-		$ipProto        = getprotobynumber($ip->{proto});
+		if (defined($ip->{proto})) {
+			$ipProto = getprotobynumber($ip->{proto});
+		}
+
 		$ref->{$primaryKey}->{ip}->{dst} 	= $ip->{dest_ip};
 		$ref->{$primaryKey}->{ip}->{src} 	= $ip->{src_ip};
-		$ref->{$primaryKey}->{raw}->{ip}->{dst} = $ip->{dest_ip};
-		$ref->{$primaryKey}->{raw}->{ip}->{src} = $ip->{src_ip};
-		$ref->{$primaryKey}->{ip}->{ver} 	= $ip->{ver};
 		$ref->{$primaryKey}->{ip}->{foffset} 	= $ip->{foffset};
 		$ref->{$primaryKey}->{ip}->{tos} 	= $ip->{tos};
 		$ref->{$primaryKey}->{ip}->{flags} 	= $ip->{flags};
@@ -411,8 +442,9 @@ sub callout {
 		$ref->{$primaryKey}->{ip}->{hlen} 	= $ip->{hlen};
 		$ref->{$primaryKey}->{ip}->{options} 	= $ip->{options};
 		$ref->{$primaryKey}->{ip}->{ttl} 	= $ip->{ttl};
-		$ref->{$primaryKey}->{ip}->{proto} 	= $ipProto;
 		$ref->{$primaryKey}->{ip}->{cksum} 	= $ip->{cksum};
+		$ref->{$primaryKey}->{ip}->{proto}	= $ipProto;
+		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip}->{dst};
 
 		# IPv4 Assignment Tagging       
                 if ($ref->{$primaryKey}->{ip}->{src} =~ /^255/ ||  $ref->{$primaryKey}->{ip}->{dst} =~ /^255/) {
@@ -427,30 +459,24 @@ sub callout {
 	if ($ip->{ver} == 6 && $ip6Enable == 1) {
   		$ip6 = NetPacket::IPv6->decode($ether);
 
+		if (defined($ip6->{nxt})) {
+        		$ipProto = getprotobynumber($ip6->{nxt});
+		} 
 		$ref->{$primaryKey}->{ip6}->{src}       = $ip6->{src_ip};
                 $ref->{$primaryKey}->{ip6}->{dst}       = $ip6->{dest_ip};
-                $ref->{$primaryKey}->{raw}->{ip}->{src} = $ip6->{src_ip};
-                $ref->{$primaryKey}->{raw}->{ip}->{dst} = $ip6->{dest_ip};
                 $ref->{$primaryKey}->{ip6}->{class}     = $ip6->{class};
                 $ref->{$primaryKey}->{ip6}->{flow}      = $ip6->{flow};
                 $ref->{$primaryKey}->{ip6}->{plen}      = $ip6->{plen};
                 $ref->{$primaryKey}->{ip6}->{nxt}       = $ip6->{nxt};
                 $ref->{$primaryKey}->{ip6}->{hlim}      = $ip6->{hlim};
-        	$ipProto = getprotobynumber($ip6->{nxt});
+		$ref->{$primaryKey}->{ip6}->{proto}	= $ipProto;
+		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip6}->{dst};
 
 	}
 	
-	# Primary key that determines indexing resolution.
-	my $ipAddressForBeanCounter;
-	$primaryKey = UUID::Random::generate;
-	if ($ip->{ver} == 6) {
-		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip6}->{dst};
-	} elsif ($ip->{ver} == 4) {
-		$ipAddressForBeanCounter = $ipDstIp;
-	}
-
 	# Only collect N samples perl destination IP;
 	$beanCounter->{$ipAddressForBeanCounter}++;
+
 	if ($maxPerDest > 0 && $beanCounter->{$ipAddressForBeanCounter} >= $maxPerDest) {
 		return;
 	}
@@ -652,12 +678,19 @@ sub callout {
 
 	}
 
-	# Process Combination Strings
-	#my $combo = "$ipProto:$ipLen:$ipTtl:$tcpFlag:$tcpWinsize:$tcpSrcPort:$tcpDstPort:$udpSrcPort:$udpDstPort";
-
-	#unless (exists($ref->{$primaryKey}->{count}->{combo}->{$combo})) {
-		#push(@{$ref->{$primaryKey}->{combo}}, $combo);
+	#if ($l7Enable == 1) {
+	#	my $pattern;
+	#	foreach (keys(%patterns)) {
+	#		$pattern = qr/$patterns{$_}/;
+	#		if ($_ =~ /unknown|unset/) {
+	#			next;
+	#		}
+	#		if ($ref->{$primaryKey}->{raw}->{data} =~ /$pattern/) {
+	#			$ref->{$primaryKey}->{l7}->{proto} = $_;
+	#		}
+	#	}
 	#}
+	
 }
 
 logIt("stopped. $counter packets processed.");
@@ -733,15 +766,29 @@ sub getFlags {
 
 sub getPats {
 	my $line;
+	my $switch;
+	my $name;
+	my $value;
+	my @patterns;
 	foreach (</etc/l7-protocols/protocols/*.pat>) {
-		open(FH, "$_") || die "Unable to open $_ for reading.\n";
-		foreach (<FH>) {
+		$switch = 0;
+		open(FH, '<', $_) or warn "Can't open '$_': $!\n";
+		@patterns = <FH>;
+		close(FH);
+		foreach (@patterns) {
 			$line = $_;
 			chomp($line);
-			unless ($line =~ /^#|^\n$/) {
-				print "$line\n";
+			if ($line =~ /^#|^\n$|^$/) {
+				next;
+			} elsif ($switch == 0) {
+				$name = $line;
+				$switch = 1;
+			} elsif ($switch == 1) {
+				$value = $line;
+				$switch = 0;
 			}
 		}
+		$patterns{$name} = $value;
 	}
 }
 
@@ -749,22 +796,24 @@ sub getPats {
 # log the message given 
 #####################################
 sub logIt {
-	my $message = shift;
+	$message = shift;
 	if ($logging == 1) {
 		openlog("$0", "ndelay,pid", "local0");
 		syslog("info|local0", $message);
 		closelog();
 	}
+	return(0);
 }
 
 #####################################
 # print message to stdout for debug 
 #####################################
 sub debugOut {
-	my $message = shift;
+	$message = shift;
 	if ($debug == 1) {
 		print "$message";
 	}
+	return(0);
 }
 
 #####################################
@@ -805,10 +854,10 @@ sub revDns {
 	my $ip = shift;
 
 	my $ipaddr = inet_aton($ip);
-	my $hostname = gethostbyaddr($ipaddr, AF_INET);
+	my $revHost = gethostbyaddr($ipaddr, AF_INET);
 
-	if (defined($hostname)) {
-		return($hostname);
+	if (defined($revHost)) {
+		return($revHost);
 	} else {
 		return("unknown");
 	}
