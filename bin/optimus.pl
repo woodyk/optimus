@@ -406,19 +406,25 @@ sub callout {
 	$eth_obj	= NetPacket::Ethernet->decode($packet);
 
 	# decimal number for ARP 2054:
-	if ($eth_obj->{type} == "2054" && $l2Enable == 1) {
-		my $arp_obj = NetPacket::ARP->decode($eth_obj->{data}, $eth_obj);
 
-		$ref->{$primaryKey}->{protos}->{l2}   = "arp";
-		$ref->{$primaryKey}->{arp}->{htype}  = $arp_obj->{htype};
-		$ref->{$primaryKey}->{arp}->{proto}  = $arp_obj->{proto};
-		$ref->{$primaryKey}->{arp}->{hlen}   = $arp_obj->{hlen};
-		$ref->{$primaryKey}->{arp}->{opcode} = $arp_obj->{opcode};
-		$ref->{$primaryKey}->{arp}->{sha}    = uc($arp_obj->{sha});
-		$ref->{$primaryKey}->{arp}->{spa}    = uc($arp_obj->{spa});
-		$ref->{$primaryKey}->{arp}->{tha}    = uc($arp_obj->{tha});
-		$ref->{$primaryKey}->{arp}->{tpa}    = uc($arp_obj->{tpa});
+	if ($l2Enable == 1) {
+		if ($eth_obj->{type} == "2054") {
+			my $arp_obj = NetPacket::ARP->decode($eth_obj->{data}, $eth_obj);
+	
+			$ref->{$primaryKey}->{protos}->{l2}   = "arp";
+			$ref->{$primaryKey}->{arp}->{htype}  = $arp_obj->{htype};
+			$ref->{$primaryKey}->{arp}->{proto}  = $arp_obj->{proto};
+			$ref->{$primaryKey}->{arp}->{hlen}   = $arp_obj->{hlen};
+			$ref->{$primaryKey}->{arp}->{opcode} = $arp_obj->{opcode};
+			$ref->{$primaryKey}->{arp}->{sha}    = uc($arp_obj->{sha});
+			$ref->{$primaryKey}->{arp}->{spa}    = uc($arp_obj->{spa});
+			$ref->{$primaryKey}->{arp}->{tha}    = uc($arp_obj->{tha});
+			$ref->{$primaryKey}->{arp}->{tpa}    = uc($arp_obj->{tpa});
+	
+		} elsif ($eth_obj->{type} == "2048") {
+			$ref->{$primaryKey}->{protos}->{l2} = "ip_route";
 
+		}
 	}
 
 	$ip = NetPacket::IP->decode($ether);
@@ -508,8 +514,8 @@ sub callout {
                         } else {
                                 $dstV = "Unknown";
                         }
-                        $ref->{$primaryKey}->{vendor}->{src} = $srcV;
-                        $ref->{$primaryKey}->{vendor}->{dst} = $dstV;
+                        $ref->{$primaryKey}->{mac}->{src_vendor} = $srcV;
+                        $ref->{$primaryKey}->{mac}->{dst_vendor} = $dstV;
 
                 }
            
@@ -660,6 +666,11 @@ sub callout {
 		if ($ref->{$primaryKey}->{udp}->{dstport} == 53 || $ref->{$primaryKey}->{udp}->{srcport} == 53 || $udp->{data} =~ /^.?.?.?.?[\x01\x02].?.?.?.?.?.?/) {
 			$ref->{$primaryKey}->{protos}->{l7} = "dns";
                 }
+
+		# NTP Traffic
+		if (($ref->{$primaryKey}->{udp}->{dstport} == 123 || $ref->{$primaryKey}->{udp}->{srcport} == 123) && $udp->{data} =~ /^([\x13\x1b\x23\xd3\xdb\xe3]|[\x14\x1c$].......?.?.?.?.?.?.?.?.?[\xc6-\xff])/) {
+			$ref->{$primaryKey}->{protos}->{l7} = "ntp";
+		}
 
         } elsif ($ipProto eq "icmp") {
         	$icmp = NetPacket::ICMP->decode($ip->{data});
