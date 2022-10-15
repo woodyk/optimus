@@ -575,16 +575,6 @@ sub callout {
 				$ref->{$primaryKey}->{protos}->{l7} = "ssh";
                         }
 
-			# TOR Traffic
-                        if ($tcp->{data} =~ /TOR1.*<identity>/) {
-				$ref->{$primaryKey}->{protos}->{l7} = "tor";
-                        }
-
-			# Jabber Traffic
-                        if ($tcp->{data} =~ /<stream:stream[\x09-\x0d ][ -~]*[\x09-\x0d ]xmlns=['"]jabber/) {
-				$ref->{$primaryKey}->{protos}->{l7} = "jabber";
-                        }
-
 			# SSL Traffic
                         if ($tcp->{data} =~ /^(.?.?\x16\x03.*\x16\x03|.?.?\x01\x03\x01?.*\x0b)|(3t.?.?.?.?.?.?.?.?.?.?h2.?http\/1\.1.?.?)/) {
 				$ref->{$primaryKey}->{protos}->{l7} = "ssl";
@@ -691,13 +681,13 @@ sub callout {
 
 		$ref->{$primaryKey}->{protos}->{l3} = "ipv6-icmp";
 
-		$ref->{$primaryKey}->{'ipv6-icmp'}->{type} = $icmpV6->{type};
-		$ref->{$primaryKey}->{'ipv6-icmp'}->{code} = $icmpV6->{code};
-		$ref->{$primaryKey}->{'ipv6-icmp'}->{cksum} = $icmpV6->{cksum};
+		$ref->{$primaryKey}->{ipv6_icmp}->{type} = $icmpV6->{type};
+		$ref->{$primaryKey}->{ipv6_icmp}->{code} = $icmpV6->{code};
+		$ref->{$primaryKey}->{ipv6_icmp}->{cksum} = $icmpV6->{cksum};
 
 		if ($payload == 1) {
 			if ($icmpV6->{data}) {
-				$ref->{$primaryKey}->{'ipv6-icmp'}->{data} = getClean($icmpV6->{data});
+				$ref->{$primaryKey}->{ipv6_icmp}->{data} = getClean($icmpV6->{data});
 			}
 		}
 
@@ -751,6 +741,7 @@ sub getClean {
 		my $getBits = $plBits;
 		$mess =~ s/\n|\r|\x0D/\./g;
 		$mess =~ s/[^[:ascii:]]|[^[:print:]]/\./g;
+		#$mess =~ s/[^ -~]/\./g;
 		$mess = substr($mess, 0, $getBits);
 	} else {
 		$mess = "";
