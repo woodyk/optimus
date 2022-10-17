@@ -13,13 +13,11 @@ use Socket;
 use Config::Tiny;
 use Getopt::Long;
 use Net::Pcap;
-use UUID::Random;
+use UUID::Tiny ':std';
 use Data::Dumper;
 use Sys::Hostname;
 use Sys::Syslog;
-use LWP::UserAgent;
 use Net::IPAddress;
-use Net::CIDR::Lite;
 use NetPacket::IP qw(:strip);
 use NetPacket::ARP qw(:strip);
 use NetPacket::TCP qw(:strip);
@@ -149,10 +147,15 @@ if ($geoIp == 1) {
 #####################################
 
 if ($hwVendor == 1) {
+	my $oui_access;
+	my $oui_age;
 	my $epoch	  = time();
 	my $oui_sched 	  = 86400; # How many seconds old does the oui.txt file need to be before we refresh it.
-	my $oui_access 	  = (stat $ouiFile)[9];
-	my $oui_age    	  = ($epoch - $oui_access);
+	if (-e $ouiFile) {
+		$oui_access 	  = (stat $ouiFile)[9];
+		$oui_age    	  = ($epoch - $oui_access);
+	}
+
 	if ($oui_age >= $oui_sched || !-f $ouiFile) {
 		my $chld_in;
 		my $pid = open3($chld_in, '>&STDOUT', '>&STDERR', "wget -O $ouiFile $ouiUrl") or die "Unable to execute command: $!\n";
@@ -386,7 +389,10 @@ sub callout {
 	my $eth_obj;
 
 	# Assign a unique UUID for this packet.
-	$primaryKey = UUID::Random::generate;
+	my $uuidBin = create_uuid(UUID_RANDOM);
+	$primaryKey = uuid_to_string($uuidBin);
+
+	$ref->{$primaryKey}->{uuid} = $primaryKey;
 
         my $ipAddressForBeanCounter = "UNKNOWN";
 	my $ipProto = "UNKNOWN";
