@@ -875,7 +875,7 @@ sub help {
 	print "\n";
 	print "Examples:\n";
 	print "\tListen to eth0 for 10 packets and output JSON.\n";
-	print "\t$0 -i eth0 -c 10 =j\n";
+	print "\t$0 -i eth0 -c 10 -j\n";
 	print "\n";
 	print "\tRead from pcap file and output JSON.\n";
 	print "\t$0 -p /path/to/pcap -j\n";
