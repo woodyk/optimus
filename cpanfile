@@ -1,4 +1,4 @@
-# cpanm -L lib/perl5 -n --installdeps . --force
+# cpanm -n --installdeps . --force
 
 requires 'JSON';
 requires 'POSIX';
