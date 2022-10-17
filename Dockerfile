@@ -1,9 +1,3 @@
-#FROM perl:5.20
-#COPY . /usr/src/myapp
-#WORKDIR /usr/src/myapp
-#CMD [ "perl", "./your-daemon-or-script.pl" ]
-
-
 FROM ubuntu:20.04
 
 RUN apt-get update
