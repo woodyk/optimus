@@ -16,7 +16,7 @@ my $e;
 # index pattern
 # profiler_2016.07.08.01
 my $eshost	= "192.168.4.12:9200";
-my $esprefix 	= "profile_";		# index prefix being rotated
+my $esprefix 	= "test_";		# index prefix being rotated
 my $retention	= "72";			# Retention in hours starting at 0
 my @elNodes;				# elastic search host, and port
 

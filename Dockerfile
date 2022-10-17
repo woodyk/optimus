@@ -13,16 +13,10 @@ libdata-dmp-perl libsys-hostname-long-perl libgetopt-long-descriptive-perl \
 libnet-ipaddress-perl libnetpacket-perl libsearch-elasticsearch-perl \
 libuuid-tiny-perl libmaxmind-db-reader-perl -y
 
-# cpan install
-# UUID::Random
+WORKDIR /optimus
+COPY . . 
 
+ENV PATH "/optimus/bin:$PATH"
 
-
-
-WORKDIR /app
-COPY ./app /app
-
-ENV PATH "/app/bin:$PATH"
-
-CMD ["/app/bin/start_test.sh"]
+CMD ["/optimus/bin/run_1.sh"]
 
