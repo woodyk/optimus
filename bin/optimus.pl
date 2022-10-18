@@ -68,7 +68,6 @@ my $ouiFile	= $config->{'application'}->{'ouiFile'};
 my $ouiUrl	= $config->{'application'}->{'ouiUrl'};
 my $payload	= $config->{'application'}->{'payload'}; 
 my $plBits	= $config->{'application'}->{'plBits'}; 
-my $targetNet	= $config->{'application'}->{'targetNet'}; 
 my $sample	= $config->{'application'}->{'sample'}; 
 my $maxPerDest	= $config->{'application'}->{'maxPerDest'}; 
 my $ip6Enable	= $config->{'application'}->{'ip6Enable'}; 

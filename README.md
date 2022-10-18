@@ -22,3 +22,15 @@ Examples:
 	Listen to eth0 for 1000 packets and inject data to elasticsearch.
 	./optimus.pl -i eth0 -c 1000 -e -s 192.168.0.10:9200
 ```
+
+## Docker Setup Example
+### Edit optimus.ini
+Make changes to your needs.
+
+### Build Docker Images
+Once all your changes are made you can execute the following to build a docker instance tuned to your settings and execute it.
+```
+docker build -t optimus .
+docker run -d --net=host --name=optimus_eth1 optimus
+```
+
