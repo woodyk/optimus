@@ -12,5 +12,5 @@ COPY . .
 
 ENV PATH "/optimus/bin:$PATH"
 
-CMD ["/optimus/bin/run_1.sh"]
+CMD ["/optimus/bin/docker_run.sh"]
 

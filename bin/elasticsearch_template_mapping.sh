@@ -1,4 +1,4 @@
-curl -XPUT "$1:9200/_template/test_data_template?pretty" -H 'Content-Type: application/json' -d'
+curl -XPUT "$1:9200/_template/optimus_data_template?pretty" -H 'Content-Type: application/json' -d'
 {
 	"index_patterns": ["test_*"],
 	"settings": {
@@ -36,6 +36,9 @@ curl -XPUT "$1:9200/_template/test_data_template?pretty" -H 'Content-Type: appli
 			},
 			"datasource": {
 				"type": "text"
+			},
+			"uuid": {
+				"type": "keyword"
 			},
 			"date": {
 				"type": "date"

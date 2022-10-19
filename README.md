@@ -23,6 +23,18 @@ Examples:
 	./optimus.pl -i eth0 -c 1000 -e -s 192.168.0.10:9200
 ```
 
+## Prepare elasticsearch for data.
+Create an elasticsearch template. Edit the script to and match index_patterns to your esPrefix in optimus.ini.
+```
+bin/elasticsearch_template_mapping.sh <ES IP ADDRESS>
+```
+The following should be returned.
+```
+{
+  "acknowledged" : true
+}
+```
+
 ## Docker Setup Example
 ### Edit optimus.ini
 Make changes to your needs.
@@ -31,6 +43,6 @@ Make changes to your needs.
 Once all your changes are made you can execute the following to build a docker instance tuned to your settings and execute it.
 ```
 docker build -t optimus .
-docker run -d --net=host --name=optimus_eth1 optimus
+docker run -d --kernel-memory 5g --restart always --net=host -e OPTIMUS_INT=eth1 --name=optimus_eth1 optimus
 ```
 

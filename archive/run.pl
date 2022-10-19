@@ -28,7 +28,6 @@ $pm->run_on_start(
 sub start_child {
 	my $child = $pm->start and next;
 	`./optimus.pl`;
-	`./bumblebee.pl`;
 	print "Finished $child\n";
 	$pm->finish;
 }
