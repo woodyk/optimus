@@ -81,6 +81,7 @@ my $nameLookup	= $config->{'application'}->{'nameLookup'};
 # Prep and enable logging
 #####################################
 my $logging     = $config->{'application'}->{'logging'}; 
+my $retention	= $config->{'application'}->{'retention'};
 
 # Time to declare your items
 my $ref; 				# data container for all the collected samples
@@ -317,6 +318,9 @@ sub output {
 		$message = "Wrote $counter packets to elasticsearch\n";
 		print "$message";
 		logIt($message);
+		if ($retention > 0) {
+			cleanIndex($retention);
+		}
 	}
 	undef($ref);
 }
@@ -903,3 +907,48 @@ sub revDns {
 	}
 }
 
+#####################################
+# Apply index retention policy 
+#####################################
+
+sub cleanIndex {
+	my $retention = shift;
+	my $mtime;
+	my $convTime;
+	my $hourCount = 0;
+	my %times;
+	my $hourToSec;
+
+	while ($hourCount <= $retention) {
+		if ($hourCount == 0) {
+			$hourToSec = 0;
+		} else {
+			$hourToSec = ($hourCount * 60) * 60;
+		}
+		$mtime = time() - $hourToSec;
+		$convTime = strftime("%Y.%m.%d.%H", localtime($mtime));
+		$hourCount++;
+		$times{$esPrefix.$convTime} = 1;
+	}
+
+	my $indexList = $e->cat->indices(h => ['index']);
+	my @indices = split(/\n/, $indexList);
+
+	foreach my $indexRet (@indices) {
+		$indexRet =~ s/ $//;
+		if ($indexRet =~ /^$esPrefix/) {
+			if (exists($times{$indexRet})) {
+				$message = "$indexRet KEEPING\n";
+				print "$message";
+				logIt($message);
+				next;
+			} else {
+				$message = "$indexRet too old.. DELETING\n";
+				print "$message";
+				logIt($message);
+				$e->indices->delete(index=>"$indexRet");
+			}
+		}
+	}
+
+}
