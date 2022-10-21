@@ -162,8 +162,8 @@ if ($hwVendor == 1) {
 		waitpid($pid, 0);
 	}
 
-        open (OUI, '<', "$ouiFile") or warn $!;
-        foreach my $line (<OUI>) {
+        open(my $OUI, '<', "$ouiFile") or warn $!;
+        while (my $line = <$OUI>) {
                 if ($line !~ /^\#/) {
                         my($address, $vendor, $vendor_long) = split(/\t+/, $line);
 
@@ -181,7 +181,7 @@ if ($hwVendor == 1) {
                         $oui{$address} = $vendor_long;
                 }
         }
-	close(OUI);
+	close($OUI);
 	$oui{FFFFFF} = "Unknown";
 }
 
@@ -293,7 +293,6 @@ sub output {
 			
 		if ($elastic == 1) {
 			$bulk->create({ index 	=> $indexname,
-					type  	=> '_doc',
 					id	=> $key,
 					source	=> $ref->{$key} });
 		}
@@ -308,9 +307,9 @@ sub output {
 			if (!-d $filePath) {
 				mkdir($filePath, 0755);
 			}
-			open(FO, ">$filePath/$filePrefix$key$epoch$fileSuffix") || die "Unable to open file in $filePath for writing.\n";
-				print FO $jsonOut;
-			close(FO);
+			open(my $FO, '>', "$filePath/$filePrefix$key$epoch$fileSuffix") || die "Unable to open file in $filePath for writing.\n";
+				print $FO $jsonOut;
+			close($FO);
 		}
 	}
 	if ($elastic == 1) {
@@ -323,6 +322,8 @@ sub output {
 		}
 	}
 	undef($ref);
+
+	return;
 }
 
 #####################################
@@ -357,6 +358,8 @@ sub trafSample {
 	Net::Pcap::close($pcap);
 
 	output();
+
+	return;
 }
 
 #####################################
@@ -718,7 +721,7 @@ sub callout {
 		}
 	}
 
-	
+	return;	
 }
 
 logIt("stopped. $counter packets processed.");
@@ -799,11 +802,12 @@ sub getPats {
 	my $name;
 	my $value;
 	my @patterns;
-	foreach (</etc/l7-protocols/protocols/*.pat>) {
+	my $patFiles = '/etc/l7-protocols/protocols/*.pat';
+	while (<$patFiles>) {
 		$switch = 0;
-		open(FH, '<', $_) or warn "Can't open '$_': $!\n";
-		@patterns = <FH>;
-		close(FH);
+		open(my $FH, '<', $_) or warn "Can't open '$_': $!\n";
+		@patterns = <$FH>;
+		close($FH);
 		foreach (@patterns) {
 			$line = $_;
 			chomp($line);
@@ -938,17 +942,18 @@ sub cleanIndex {
 		$indexRet =~ s/ $//;
 		if ($indexRet =~ /^$esPrefix/) {
 			if (exists($times{$indexRet})) {
-				$message = "$indexRet KEEPING\n";
+				$message = "index $indexRet KEEPING\n";
 				print "$message";
 				logIt($message);
 				next;
 			} else {
-				$message = "$indexRet too old.. DELETING\n";
+				$message = "index $indexRet too old.. DELETING\n";
 				print "$message";
 				logIt($message);
 				$e->indices->delete(index=>"$indexRet");
 			}
 		}
 	}
-
+	
+	return;
 }

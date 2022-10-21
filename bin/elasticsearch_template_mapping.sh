@@ -1,6 +1,6 @@
 curl -XPUT "$1:9200/_template/optimus_data_template?pretty" -H 'Content-Type: application/json' -d'
 {
-	"index_patterns": ["test_*"],
+	"index_patterns": ["packets_*"],
 	"settings": {
 		"number_of_shards": 1
 	},
