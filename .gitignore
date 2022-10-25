@@ -153,3 +153,6 @@ cython_debug/
 
 # Vim files
 *.swp
+
+# Other
+lib/wireshark_oui.txt

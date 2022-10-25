@@ -31,6 +31,9 @@ use Search::Elasticsearch;
 use MaxMind::DB::Reader;
 use IPC::Open3;
 
+$SIG{INT} = sub { die "Caught a sigint $!" };
+$SIG{TERM} = sub { die "Caught a sigterm $!" };
+
 my $confFile = '../etc/optimus.ini';
 my $Config = Config::Tiny->new;
 my $config = Config::Tiny->read($confFile, 'utf8');
@@ -88,15 +91,15 @@ my $ref; 				# data container for all the collected samples
 my $beanCounter;			# packet counter
 my $e;					# elasticsearch handle
 my $bulk;				# elasticsearch bulk handle
-my $gi;
 my %oui;
+my $gi;
 my $primaryKey;
 my $offline = 0;
 my $message;
 my $counter;
 my $pcapFile;
 my %patterns;
-my $geoIpType;
+my ($startTime, $stopTime, $runTime);
 
 # Get command line options.
 GetOptions(
@@ -116,33 +119,15 @@ logIt("started.");
 local $ENV{TZ} = 'UTC';
 my $hostname = hostname();
 
-#tcp flags: urg, ack, psh, rst, syn, fin, ece, cwr
-#my @NetPacketIP = qw( ver hlen flags foffset tos len id ttl proto cksum src_ip dest_ip options data );
-#my @NetPacketTCP = qw( src_port dest_port seqnum acknum hlen reserved flags winsize cksum urg options data );
-#my @NetPacketICMP = qw( type code cksum data );
-#my @NetPacketIGMP = qw( version type len subtype cksum group_addr data );
-#my @NetPacketUDP = qw( src_port dest_port len cksum data );
-#my @NetPacketEthernet = qw( src_mac dest_mac type data ); 
-#my @NetPacketARP = qw( htype proto hlen plen opcode sha spa tha tpa );
-
-#####################################
-# Overwrite Variables with Environment Settings if they exist.	
-#####################################
-
-if ($ENV{OPTIMUS_INTERFACE}) {
-	$interface = $ENV{OPTIUMUS_INTERFACE};
+if ($elastic == 1 && $geoIp == 1) {
+	$message = "Disabling GeoIp.  Elastic search pipelines should be used for GeoIP recording.\n";
+	print "$message";
+	logIt($message);
+	$geoIp = 0;
 }
 
 #####################################
-# Open Geo IP handle if enabled. 
-#####################################
-if ($geoIp == 1) {
-	$gi = MaxMind::DB::Reader->new(file => $geoIpDb);
-	$geoIpType = "mmdb";
-}
-
-#####################################
-# make sure we have the IEEE Vendor data file
+# Make sure we have the IEEE Vendor data file
 # Checking if we should update.
 #####################################
 
@@ -186,7 +171,8 @@ if ($hwVendor == 1) {
 }
 
 #####################################
-# Check that a file has been given if running in offline mode
+# Check that a file has been given if
+# running in offline mode
 #####################################
 
 if (defined($pcapFile)) {
@@ -209,12 +195,14 @@ if (defined($pcapFile)) {
 # Begin collection of samples.
 #####################################
 trafSample($interface, $sample);
-closelog();
 
 #####################################
 # Process our output 
 #####################################
 sub output {
+	$startTime = time();
+	print "Output started.\n";
+
         my $epoch = time();
 	my $indexstamp = strftime("%Y.%m.%d.%H", localtime());
 	my $indexname = $esPrefix.$indexstamp;
@@ -239,6 +227,10 @@ sub output {
 
 	$counter = 0;
 	my $result;
+	if ($geoIp == 1) {
+		$gi = MaxMind::DB::Reader->new(file => $geoIpDb);
+	}
+
 	foreach my $key (keys(%{$ref})) {
 		my $json = JSON->new();	
 
@@ -312,16 +304,18 @@ sub output {
 			close($FO);
 		}
 	}
+
 	if ($elastic == 1) {
 		$result = $bulk->flush;
 		$message = "Wrote $counter packets to elasticsearch\n";
 		print "$message";
 		logIt($message);
-		if ($retention > 0) {
-			cleanIndex($retention);
-		}
+		cleanIndex($retention);
 	}
-	undef($ref);
+
+	$stopTime = time();
+	$runTime = ($stopTime - $startTime);
+	print "Output processed in $runTime seconds.\n";
 
 	return;
 }
@@ -354,10 +348,11 @@ sub trafSample {
         Net::Pcap::setfilter($pcap, $filter_compiled) && warn "Unable to set filter.\n";
         #alarm $runTime;
 
-        Net::Pcap::loop($pcap, $runTime, \&callout, '');
+        Net::Pcap::loop($pcap, $runTime, \&processPacket, '');
 	Net::Pcap::close($pcap);
 
 	output();
+	#forkIt();
 
 	return;
 }
@@ -365,9 +360,9 @@ sub trafSample {
 #####################################
 # Network traffic parsing 
 #####################################
-sub callout {
+sub processPacket {
         my ($user_data, $header, $packet) = @_;
-
+	
 	# ETHERNET declarations
 	my ($ether, $l2, $srcMac, $dstMac, $l2type);
 
@@ -389,16 +384,13 @@ sub callout {
 	# IGMP declarations
 	my $igmp;
 
-	# Other declarations for sub callout
+	# Other declarations for sub processPacket
 	my $packetTime;
-	my $mtime;
 	my $eth_obj;
 
 	# Assign a unique UUID for this packet.
 	my $uuidBin = create_uuid(UUID_RANDOM);
 	$primaryKey = uuid_to_string($uuidBin);
-
-	$ref->{$primaryKey}->{uuid} = $primaryKey;
 
         my $ipAddressForBeanCounter = "UNKNOWN";
 	my $ipProto = "UNKNOWN";
@@ -410,7 +402,6 @@ sub callout {
 	$ref->{$primaryKey}->{protos}->{l7}   = "unknown";
 
 	# Set the time to the current minute rounded down to the first second.
-	$mtime = time() - (time() % 60);
 	$packetTime = strftime("%Y-%m-%dT%H:%M:%S", localtime($header->{tv_sec}));
 	$ref->{$primaryKey}->{date} = $packetTime;
 
@@ -713,6 +704,7 @@ sub callout {
 		$ref->{$primaryKey}->{igmp}->{len}		= $igmp->{len};
 		$ref->{$primaryKey}->{igmp}->{subtype}		= $igmp->{subtype};
 		$ref->{$primaryKey}->{igmp}->{group_addr}	= $igmp->{group_addr};
+		$ref->{$primaryKey}->{igmp}->{cksum}		= $igmp->{cksum};
 
 		if ($payload == 1) {
 			if ($igmp->{data}) {
@@ -720,7 +712,6 @@ sub callout {
 			}
 		}
 	}
-
 	return;	
 }
 
@@ -916,7 +907,10 @@ sub revDns {
 #####################################
 
 sub cleanIndex {
-	my $retention = shift;
+	if ($retention == 0) {
+		return;
+	}
+	
 	my $mtime;
 	my $convTime;
 	my $hourCount = 0;
@@ -943,7 +937,7 @@ sub cleanIndex {
 		if ($indexRet =~ /^$esPrefix/) {
 			if (exists($times{$indexRet})) {
 				$message = "index $indexRet KEEPING\n";
-				print "$message";
+				#print "$message";
 				logIt($message);
 				next;
 			} else {
@@ -956,4 +950,21 @@ sub cleanIndex {
 	}
 	
 	return;
+}
+
+#####################################
+# Fork routine 
+#####################################
+
+sub forkIt {
+	my $pid;
+	if(!defined($pid = fork())) {
+		die("Cannot fork child: $!");
+	} elsif ($pid == 0) {
+		print "Child Started.\n";
+		output();
+		exit;
+	} else {
+		return; 
+	}
 }
