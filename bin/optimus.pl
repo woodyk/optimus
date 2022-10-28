@@ -84,7 +84,6 @@ my $nameLookup	= $config->{'application'}->{'nameLookup'};
 # Prep and enable logging
 #####################################
 my $logging     = $config->{'application'}->{'logging'}; 
-my $retention	= $config->{'application'}->{'retention'};
 
 # Time to declare your items
 my $ref; 				# data container for all the collected samples
@@ -201,7 +200,7 @@ trafSample($interface, $sample);
 #####################################
 sub output {
 	$startTime = time();
-	print "Output started.\n";
+	debugIt("Output started.\n");
 
         my $epoch = time();
 	my $indexstamp = strftime("%Y.%m.%d.%H", localtime());
@@ -308,14 +307,13 @@ sub output {
 	if ($elastic == 1) {
 		$result = $bulk->flush;
 		$message = "Wrote $counter packets to elasticsearch\n";
-		print "$message";
+		debugIt($message);
 		logIt($message);
-		cleanIndex($retention);
 	}
 
 	$stopTime = time();
 	$runTime = ($stopTime - $startTime);
-	print "Output processed in $runTime seconds.\n";
+	debugIt("Output processed in $runTime seconds.\n");
 
 	return;
 }
@@ -352,7 +350,6 @@ sub trafSample {
 	Net::Pcap::close($pcap);
 
 	output();
-	#forkIt();
 
 	return;
 }
@@ -387,6 +384,7 @@ sub processPacket {
 	# Other declarations for sub processPacket
 	my $packetTime;
 	my $eth_obj;
+	my $payloadData;
 
 	# Assign a unique UUID for this packet.
 	my $uuidBin = create_uuid(UUID_RANDOM);
@@ -529,6 +527,7 @@ sub processPacket {
         	$tcp = NetPacket::TCP->decode($ip->{data});
 
 		$ref->{$primaryKey}->{protos}->{l4} = "tcp";
+		$payloadData = $tcp->{data};
 
 		# TCP flag inspection module
 		$ref->{$primaryKey}->{tcp}->{flag}->{FIN} = "false";
@@ -561,31 +560,121 @@ sub processPacket {
 		$ref->{$primaryKey}->{tcp}->{window_size}	= $tcp->{winsize};
 
 		if ($payload == 1) {
-			if ($tcp->{data}) {
-				$ref->{$primaryKey}->{tcp}->{data} = getClean($tcp->{data});
+			if ($payloadData) {
+				$ref->{$primaryKey}->{tcp}->{data} = getClean($payloadData);
+				# Add hex payload for pattern matching.
+				#my $hex = uc(unpack("H*", $tcp->{data}));
 			}
 		}
 
 		# L7 inspection modules
 		if ($l7Enable == 1) {
 			# BGP traffic
-			if ($tcp->{data} =~ /^\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff..?\x01[\x03\x04]/) {
+			if ($payloadData =~ /^\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff..?\x01[\x03\x04]/) {
 				$ref->{$primaryKey}->{protos}->{l7} = "bgp";
                         }
 
 			# SSH Straffic
-                        if ($ref->{$primaryKey}->{tcp}->{dstport} == 22 || $ref->{$primaryKey}->{tcp}->{srcport} == 22 || $tcp->{data} =~ /^ssh-[12]\.[0-9]/i) {
+                        if ($ref->{$primaryKey}->{tcp}->{dstport} == 22 || $ref->{$primaryKey}->{tcp}->{srcport} == 22 || $payloadData =~ /^ssh-[12]\.[0-9]/i) {
 				$ref->{$primaryKey}->{protos}->{l7} = "ssh";
                         }
 
+		}
+        } elsif ($ipProto eq "udp") {
+        	$udp = NetPacket::UDP->decode($ip->{data});
+
+		$ref->{$primaryKey}->{protos}->{l4} = "udp";
+		$payloadData = $udp->{data};
+
+		$ref->{$primaryKey}->{udp}->{dstport}	= $udp->{dest_port};
+		$ref->{$primaryKey}->{udp}->{srcport}	= $udp->{src_port};
+		$ref->{$primaryKey}->{udp}->{len}	= $udp->{len};
+
+		if ($payload == 1) {
+			if ($payloadData) {
+				$ref->{$primaryKey}->{udp}->{data} = getClean($payloadData);
+			}
+		}
+		# DNS Traffic
+		if ($ref->{$primaryKey}->{udp}->{dstport} == 53 || $ref->{$primaryKey}->{udp}->{srcport} == 53) {
+			$ref->{$primaryKey}->{protos}->{l7} = "dns";
+                }
+
+		# mDNS Traffic
+		if ($ref->{$primaryKey}->{udp}->{dstport} == 53 || $ref->{$primaryKey}->{udp}->{srcport} == 53) {
+			$ref->{$primaryKey}->{protos}->{l7} = "mdns";
+                }
+
+
+		# NTP Traffic
+		if (($ref->{$primaryKey}->{udp}->{dstport} == 123 || $ref->{$primaryKey}->{udp}->{srcport} == 123) && $payloadData =~ /^([\x13\x1b\x23\xd3\xdb\xe3]|[\x14\x1c$].......?.?.?.?.?.?.?.?.?[\xc6-\xff])/) {
+			$ref->{$primaryKey}->{protos}->{l7} = "ntp";
+		}
+
+        } elsif ($ipProto eq "icmp") {
+        	$icmp = NetPacket::ICMP->decode($ip->{data});
+
+		$ref->{$primaryKey}->{protos}->{l3} = "icmp";
+		$payloadData = $icmp->{data};
+
+		$ref->{$primaryKey}->{icmp}->{type} = $icmp->{type};
+		$ref->{$primaryKey}->{icmp}->{code} = $icmp->{code};
+
+		if ($payload == 1) {
+			if ($payloadData) {
+				$ref->{$primaryKey}->{icmp}->{data} = getClean($payloadData);
+			}
+		}
+		
+	} elsif ($ipProto eq "ipv6-icmp") {
+		$icmpV6 = NetPacket::ICMPv6->decode(ipv6_strip(eth_strip($packet)));
+
+		$ref->{$primaryKey}->{protos}->{l3} = "ipv6-icmp";
+		$payloadData = $icmpV6->{data};
+
+		$ref->{$primaryKey}->{ipv6_icmp}->{type} = $icmpV6->{type};
+		$ref->{$primaryKey}->{ipv6_icmp}->{code} = $icmpV6->{code};
+		$ref->{$primaryKey}->{ipv6_icmp}->{cksum} = $icmpV6->{cksum};
+
+		if ($payload == 1) {
+			if ($payloadData) {
+				$ref->{$primaryKey}->{ipv6_icmp}->{data} = getClean($payloadData);
+			}
+		}
+
+	} elsif ($ipProto eq "igmp") {
+        	$igmp = NetPacket::IGMP->decode($ip->{data});
+
+		$ref->{$primaryKey}->{protos}->{l3} = "igmp";
+		$payloadData = $igmp->{data};
+
+		$ref->{$primaryKey}->{igmp}->{version}		= $igmp->{version};
+		$ref->{$primaryKey}->{igmp}->{type}		= $igmp->{type};
+		$ref->{$primaryKey}->{igmp}->{len}		= $igmp->{len};
+		$ref->{$primaryKey}->{igmp}->{subtype}		= $igmp->{subtype};
+		$ref->{$primaryKey}->{igmp}->{group_addr}	= $igmp->{group_addr};
+		$ref->{$primaryKey}->{igmp}->{cksum}		= $igmp->{cksum};
+
+		if ($payload == 1) {
+			if ($payloadData) {
+				$ref->{$primaryKey}->{igmp}->{data} = getClean($payloadData);
+			}
+		}
+	}
+
+	if ($l7Enable == 1) {
+		if ($ipProto =~ /^tcp$|^udp$/ && defined($payloadData)) {
 			# SSL Traffic
-                        if ($tcp->{data} =~ /^(.?.?\x16\x03.*\x16\x03|.?.?\x01\x03\x01?.*\x0b)|(3t.?.?.?.?.?.?.?.?.?.?h2.?http\/1\.1.?.?)/) {
+                        if ($payloadData =~ /^(.?.?\x16\x03.*\x16\x03|.?.?\x01\x03\x01?.*\x0b)|(3t.?.?.?.?.?.?.?.?.?.?h2.?http\/1\.1.?.?)/) {
 				$ref->{$primaryKey}->{protos}->{l7} = "ssl";
                         }
 
+			# HTTP Headers Patterns
+			my $httpPatterns = qr/^Accept|^Access-|^Age|^Allow|^Alt-Svc|^Authorization|^Cache-Control|^Clear-Site-Data|^Connection|^Content-|^Cookie|^Cross-|^Date|^Device-Memory|^Digest|^DNT|^Downlink|^DPR|^Early-Data|^ECT|^ETag|^Expect|^Expires|^Feature-Policy|^Forwarded|^From|^Host|^If-|^Keep-Alive|^Large-Allocation|^Last-Modified|^Link|^Location|^Max-Forwards|^NEL|^Origin|^Pragma|^Proxy-|^Range|^Referer|^Referrer-Policy|^Retry-After|^RTT|^Save-Data|^Sec-|^Server|^Service-Worker-Navigation-Preload|^Set-Cookie|^SourceMap|^Strict-Transport-Security|^TE|^Timing-Allow-Origin|^Tk|^Trailer|^Transfer-Encoding|^Upgrade|^User-Agent|^Vary|^Via|^Viewport-Width|^Want-Digest|^Warning|^Width|^WWW-Authenticate|^X-/; 	
+
 			# HTTP Request	
-			if ($tcp->{data} =~ /^GET |^POST |^HEAD |^PUT |^DELETE |^TRACE |^CONNECT /i) {
-				my @lines = split("\n", $tcp->{data});
+			if ($payloadData =~ /^GET |^POST |^HEAD |^PUT |^DELETE |^TRACE |^CONNECT |^OPTIONS |^PATCH /i) {
+				my @lines = split("\n", $payloadData);
 				my $methUri = shift(@lines);
 				my @methodData = split(" ", $methUri);
 
@@ -600,7 +689,7 @@ sub processPacket {
 						next;
 					}
 					my ($header,$headerContent) = split(/: /, $_);
-					if ($header !~ /^Accept$|^Accept-Charset$|^Accept-Encoding$|^Accept-Language$|^Accept-Datetime$|^Authorization$|^Cache-Control$|^Connection$|^Cookie$|^Content-Length$|^Content-MD5$|^Content-Type$|^Date$|^Expect$|^From$|^Host$|^If-Match$|^If-Modified-Since$|^If-None-Match$|^If-Range$|^If-Unmodified-Since$|^Max-ForwardsMax-Forwards$|^Origin$|^Pragma$|^Proxy-Authorization$|^Range$|^Referer$|^TE$|^Upgrade$|^User-Agent$|^Via$|^Warning$|^X-Forwarded-For$/i) { next; }				
+					if ($header !~ /$httpPatterns/i) { next; }				
 					if ($header =~ /\r/) {
 						next;
 					}
@@ -609,14 +698,13 @@ sub processPacket {
 					$headerContent =~ s/^ //;
 					$headerContent =~ s/\s+\r$|\r$//;
 
-					$ref->{$primaryKey}->{http}->{header}->{$header} = $headerContent;
+					$ref->{$primaryKey}->{http}->{request}->{header}->{$header} = $headerContent;
 
 				}
 			}
-			
 			# HTTP Response
-			if ($tcp->{data} =~ /^HTTP\/\d/i) {
-                                my @lines = split("\r\n", $tcp->{data});
+			if ($payloadData =~ /^HTTP\/\d/i) {
+                                my @lines = split("\r\n", $payloadData);
                                 my $responseHeader = shift(@lines);
                                 my ($resVersion, $resCode, $resStatus) = split(" ", $responseHeader);
 
@@ -627,91 +715,23 @@ sub processPacket {
 
 				foreach (@lines) {
 					my $line = $_;
-					if ($line !~ /: /) {
+					if ($line !~ /:/) {
 						next;
 					}
 
 					my ($header,$headerContent) = split(/: /, $line);
-					if ($header !~ /^Accept$|^Accept-Charset$|^Accept-Encoding$|^Accept-Language$|^Accept-Datetime$|^Authorization$|^Cache-Control$|^Connection$|^Cookie$|^Content-Length$|^Content-MD5$|^Content-Type$|^Date$|^Expect$|^From$|^Host$|^If-Match$|^If-Modified-Since$|^If-None-Match$|^If-Range$|^If-Unmodified-Since$|^Max-ForwardsMax-Forwards$|^Origin$|^Pragma$|^Proxy-Authorization$|^Range$|^Referer$|^TE$|^Upgrade$|^User-Agent$|^Via$|^Warning$|^X-Forwarded-For$|^X-/i) { next; }
+					if ($header !~ /$httpPatterns/i) { next; }				
 					$header = lc($header);
 					$headerContent =~ s/^ //;
 					$headerContent =~ s/\s+\r$|\r$//;
 
+					$ref->{$primaryKey}->{http}->{response}->{header}->{$header} = $headerContent;
+
 				}
-			}
-
-		}
-        } elsif ($ipProto eq "udp") {
-        	$udp = NetPacket::UDP->decode($ip->{data});
-
-		$ref->{$primaryKey}->{protos}->{l4} = "udp";
-
-		$ref->{$primaryKey}->{udp}->{dstport}	= $udp->{dest_port};
-		$ref->{$primaryKey}->{udp}->{srcport}	= $udp->{src_port};
-		$ref->{$primaryKey}->{udp}->{len}	= $udp->{len};
-
-		if ($payload == 1) {
-			if ($udp->{data}) {
-				$ref->{$primaryKey}->{udp}->{data} = getClean($udp->{data});
-			}
-		}
-		# DNS Traffic
-		if ($ref->{$primaryKey}->{udp}->{dstport} == 53 || $ref->{$primaryKey}->{udp}->{srcport} == 53 || $udp->{data} =~ /^.?.?.?.?[\x01\x02].?.?.?.?.?.?/) {
-			$ref->{$primaryKey}->{protos}->{l7} = "dns";
-                }
-
-		# NTP Traffic
-		if (($ref->{$primaryKey}->{udp}->{dstport} == 123 || $ref->{$primaryKey}->{udp}->{srcport} == 123) && $udp->{data} =~ /^([\x13\x1b\x23\xd3\xdb\xe3]|[\x14\x1c$].......?.?.?.?.?.?.?.?.?[\xc6-\xff])/) {
-			$ref->{$primaryKey}->{protos}->{l7} = "ntp";
-		}
-
-        } elsif ($ipProto eq "icmp") {
-        	$icmp = NetPacket::ICMP->decode($ip->{data});
-
-		$ref->{$primaryKey}->{protos}->{l3} = "icmp";
-
-		$ref->{$primaryKey}->{icmp}->{type} = $icmp->{type};
-		$ref->{$primaryKey}->{icmp}->{code} = $icmp->{code};
-
-		if ($payload == 1) {
-			if ($icmp->{data}) {
-				$ref->{$primaryKey}->{icmp}->{data} = getClean($icmp->{data});
-			}
-		}
-		
-	} elsif ($ipProto eq "ipv6-icmp") {
-		$icmpV6 = NetPacket::ICMPv6->decode(ipv6_strip(eth_strip($packet)));
-
-		$ref->{$primaryKey}->{protos}->{l3} = "ipv6-icmp";
-
-		$ref->{$primaryKey}->{ipv6_icmp}->{type} = $icmpV6->{type};
-		$ref->{$primaryKey}->{ipv6_icmp}->{code} = $icmpV6->{code};
-		$ref->{$primaryKey}->{ipv6_icmp}->{cksum} = $icmpV6->{cksum};
-
-		if ($payload == 1) {
-			if ($icmpV6->{data}) {
-				$ref->{$primaryKey}->{ipv6_icmp}->{data} = getClean($icmpV6->{data});
-			}
-		}
-
-	} elsif ($ipProto eq "igmp") {
-        	$igmp = NetPacket::IGMP->decode($ip->{data});
-
-		$ref->{$primaryKey}->{protos}->{l3} = "igmp";
-
-		$ref->{$primaryKey}->{igmp}->{version}		= $igmp->{version};
-		$ref->{$primaryKey}->{igmp}->{type}		= $igmp->{type};
-		$ref->{$primaryKey}->{igmp}->{len}		= $igmp->{len};
-		$ref->{$primaryKey}->{igmp}->{subtype}		= $igmp->{subtype};
-		$ref->{$primaryKey}->{igmp}->{group_addr}	= $igmp->{group_addr};
-		$ref->{$primaryKey}->{igmp}->{cksum}		= $igmp->{cksum};
-
-		if ($payload == 1) {
-			if ($igmp->{data}) {
-				$ref->{$primaryKey}->{igmp}->{data} = getClean($igmp->{data});
 			}
 		}
 	}
+
 	return;	
 }
 
@@ -847,7 +867,7 @@ sub logIt {
 #####################################
 # print message to stdout for debug 
 #####################################
-sub debugOut {
+sub debugIt {
 	$message = shift;
 	if ($debug == 1) {
 		print "$message";
@@ -862,7 +882,7 @@ sub help {
 	print "$0\n";
 	print "\t-i\tInterface to listen to.\n";
 	print "\t-p\tPath to pcap file for reading.\n";
-	print "\t-j\tOuput JSON to STDOUT for each packet.\n";
+	print "\t-j\tOutput JSON to STDOUT for each packet.\n";
 	print "\t-d\tOutput debug information to STDOUT.\n";
 	print "\t-c\tNumber of packets to process. Only works when interface is defined.\n";
 	print "\t-e\tEnable elastic search.\n";
@@ -891,80 +911,14 @@ sub help {
 
 sub revDns {
 	my $ip = shift;
-
-	my $ipaddr = inet_aton($ip);
-	my $revHost = gethostbyaddr($ipaddr, AF_INET);
-
-	if (defined($revHost)) {
-		return($revHost);
-	} else {
-		return("unknown");
-	}
-}
-
-#####################################
-# Apply index retention policy 
-#####################################
-
-sub cleanIndex {
-	if ($retention == 0) {
-		return;
-	}
-	
-	my $mtime;
-	my $convTime;
-	my $hourCount = 0;
-	my %times;
-	my $hourToSec;
-
-	while ($hourCount <= $retention) {
-		if ($hourCount == 0) {
-			$hourToSec = 0;
+	if (defined($ip)) {
+		my $ipaddr = inet_aton($ip);
+		my $revHost = gethostbyaddr($ipaddr, AF_INET);
+		if (defined($revHost)) {
+			return($revHost);
 		} else {
-			$hourToSec = ($hourCount * 60) * 60;
-		}
-		$mtime = time() - $hourToSec;
-		$convTime = strftime("%Y.%m.%d.%H", localtime($mtime));
-		$hourCount++;
-		$times{$esPrefix.$convTime} = 1;
-	}
-
-	my $indexList = $e->cat->indices(h => ['index']);
-	my @indices = split(/\n/, $indexList);
-
-	foreach my $indexRet (@indices) {
-		$indexRet =~ s/ $//;
-		if ($indexRet =~ /^$esPrefix/) {
-			if (exists($times{$indexRet})) {
-				$message = "index $indexRet KEEPING\n";
-				#print "$message";
-				logIt($message);
-				next;
-			} else {
-				$message = "index $indexRet too old.. DELETING\n";
-				print "$message";
-				logIt($message);
-				$e->indices->delete(index=>"$indexRet");
-			}
+			return("unknown");
 		}
 	}
-	
-	return;
 }
 
-#####################################
-# Fork routine 
-#####################################
-
-sub forkIt {
-	my $pid;
-	if(!defined($pid = fork())) {
-		die("Cannot fork child: $!");
-	} elsif ($pid == 0) {
-		print "Child Started.\n";
-		output();
-		exit;
-	} else {
-		return; 
-	}
-}

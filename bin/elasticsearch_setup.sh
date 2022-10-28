@@ -1,9 +1,82 @@
+echo "Creating GeoIP pipeline."
+curl -XPUT "$1:9200/_ingest/pipeline/optimus_geoip?pretty" -H 'Content-Type: application/json' -d'
+{
+  "processors": [
+    {
+      "geoip": {
+        "field": "ip.dst",
+        "target_field": "geoip.dst",
+        "ignore_failure": true
+      }
+    },
+    {
+      "geoip": {
+        "field": "ip.src",
+        "target_field": "geoip.src",
+        "ignore_failure": true
+      }
+    }
+  ]
+}
+'
+
+echo "Creating index lifecycle policy."
+curl -XPUT "$1:9200/_ilm/policy/optimus_policy?pretty" -H 'Content-Type: application/json' -d'
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "actions": {
+          "set_priority": {
+            "priority": 100
+          }
+        },
+        "min_age": "0ms"
+      },
+      "warm": {
+        "min_age": "2h",
+        "actions": {
+          "set_priority": {
+            "priority": 50
+          },
+          "readonly": {}
+        }
+      },
+      "delete": {
+        "min_age": "25h",
+        "actions": {
+          "delete": {}
+        }
+      }
+    }
+  }
+}
+'
+
+echo "Creating index template mapping."
 curl -XPUT "$1:9200/_index_template/optimus_template?pretty" -H 'Content-Type: application/json' -d'
 {
   "template": {
     "settings": {
-      "number_of_shards": 1,
-      "default_pipeline": "optimus_geoip"
+      "index": {
+        "lifecycle": {
+          "name": "optimus_policy"
+        },
+        "routing": {
+          "allocation": {
+            "include": {
+              "_tier_preference": "data_content"
+            }
+          }
+        },
+        "number_of_shards": 1,
+        "default_pipeline": "optimus_geoip"
+      },
+      "search": {
+        "idle": {
+          "after": "3600s"
+        }
+      }
     },
     "mappings": {
       "dynamic_templates": [],
@@ -39,11 +112,11 @@ curl -XPUT "$1:9200/_index_template/optimus_template?pretty" -H 'Content-Type: a
         },
 	"http": {
           "properties": {
-            "header": {
-              "type": "object"
-            },
             "request": {
               "properties": {
+                "header": {
+                  "type": "object"
+                },
                 "method": {
                   "type": "keyword"
                 },
@@ -61,8 +134,10 @@ curl -XPUT "$1:9200/_index_template/optimus_template?pretty" -H 'Content-Type: a
               }
             },
             "response": {
-              "dynamic": "true",
               "properties": {
+                "header": {
+                  "type": "object"
+                },
                 "code": {
                   "type": "integer"
                 },
@@ -386,27 +461,6 @@ curl -XPUT "$1:9200/_index_template/optimus_template?pretty" -H 'Content-Type: a
   },
   "index_patterns": [
     "packets_*"
-  ]
-}
-'
-
-curl -XPUT "$1:9200/_ingest/pipeline/optimus_geoip?pretty" -H 'Content-Type: application/json' -d'
-{
-  "processors": [
-    {
-      "geoip": {
-        "field": "ip.dst",
-        "target_field": "geoip.dst",
-        "ignore_failure": true
-      }
-    },
-    {
-      "geoip": {
-        "field": "ip.src",
-        "target_field": "geoip.src",
-        "ignore_failure": true
-      }
-    }
   ]
 }
 '
