@@ -446,7 +446,7 @@ sub processPacket {
 		$ref->{$primaryKey}->{ip}->{flags} 	= $ip->{flags};
 		$ref->{$primaryKey}->{ip}->{len} 	= $ip->{len};
 		$ref->{$primaryKey}->{ip}->{hlen} 	= $ip->{hlen};
-		$ref->{$primaryKey}->{ip}->{options} 	= $ip->{options};
+		#$ref->{$primaryKey}->{ip}->{options} 	= $ip->{options};
 		$ref->{$primaryKey}->{ip}->{ttl} 	= $ip->{ttl};
 		$ref->{$primaryKey}->{ip}->{cksum} 	= $ip->{cksum};
 		$ref->{$primaryKey}->{ip}->{ver} 	= $ip->{ver};
@@ -455,12 +455,11 @@ sub processPacket {
 		# IPv4 Assignment Tagging       
                 if ($ref->{$primaryKey}->{ip}->{src} =~ /^255/ ||  $ref->{$primaryKey}->{ip}->{dst} =~ /^255/) {
                         addTag($primaryKey, 'BROADCAST');
-                } elsif ($ref->{$primaryKey}->{ip}->{src} =~ /^22[3-9]|^23[0-9]/ || $ref->{$primaryKey}->{ip}->{dst} =~ /^22[3-9]|^23[0-9]/ ) {      #223 - 239 = Multicast
+                } elsif ($ref->{$primaryKey}->{ip}->{src} =~ /^22[3-9]|^23[0-9]|^ff[0-9a-f][0-9a-f]:/ || $ref->{$primaryKey}->{ip}->{dst} =~ /^22[3-9]|^23[0-9]|^ff[0-9a-f][0-9a-f]:/ ) {      #ff00::/8 223 - 239 = Multicast
                         addTag($primaryKey, 'MULTICAST');
                 }
-
 	}
-	
+
 
 	if ($ip->{ver} == 6 && $ip6Enable == 1) {
 
@@ -482,6 +481,11 @@ sub processPacket {
                 $ref->{$primaryKey}->{ip}->{type}	= $ip6->{type};
 		
 		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip}->{dst};
+
+                if ($ref->{$primaryKey}->{ip}->{src} =~ /^ff[0-9a-f][0-9a-f]:/ || $ref->{$primaryKey}->{ip}->{dst} =~ /^ff[0-9a-f][0-9a-f]:/ ) {      #ff00::/8 = Multicast
+                        addTag($primaryKey, 'MULTICAST');
+                }
+
 
 	}
 	
@@ -601,7 +605,7 @@ sub processPacket {
                 }
 
 		# mDNS Traffic
-		if ($ref->{$primaryKey}->{udp}->{dstport} == 53 || $ref->{$primaryKey}->{udp}->{srcport} == 53) {
+		if ($ref->{$primaryKey}->{udp}->{dstport} == 5353 || $ref->{$primaryKey}->{udp}->{srcport} == 5353) {
 			$ref->{$primaryKey}->{protos}->{l7} = "mdns";
                 }
 
