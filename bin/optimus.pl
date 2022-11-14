@@ -453,9 +453,9 @@ sub processPacket {
 		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip}->{dst};
 
 		# IPv4 Assignment Tagging       
-                if ($ref->{$primaryKey}->{ip}->{src} =~ /^255/ ||  $ref->{$primaryKey}->{ip}->{dst} =~ /^255/) {
+                if ($ref->{$primaryKey}->{ip}->{dst} =~ /^255\.255\.255\.255/) {
                         addTag($primaryKey, 'BROADCAST');
-                } elsif ($ref->{$primaryKey}->{ip}->{src} =~ /^22[3-9]|^23[0-9]|^ff[0-9a-f][0-9a-f]:/ || $ref->{$primaryKey}->{ip}->{dst} =~ /^22[3-9]|^23[0-9]|^ff[0-9a-f][0-9a-f]:/ ) {      #ff00::/8 223 - 239 = Multicast
+                } elsif ($ref->{$primaryKey}->{ip}->{dst} =~ /^22[3-9]\.|^23[0-9]\./ ) {
                         addTag($primaryKey, 'MULTICAST');
                 }
 	}
@@ -482,11 +482,9 @@ sub processPacket {
 		
 		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip}->{dst};
 
-                if ($ref->{$primaryKey}->{ip}->{src} =~ /^ff[0-9a-f][0-9a-f]:/ || $ref->{$primaryKey}->{ip}->{dst} =~ /^ff[0-9a-f][0-9a-f]:/ ) {      #ff00::/8 = Multicast
+                if ($ref->{$primaryKey}->{ip}->{dst} =~ /^ff[0-9a-f][0-9a-f]:/ ) {
                         addTag($primaryKey, 'MULTICAST');
                 }
-
-
 	}
 	
 	# Only collect N samples perl destination IP;

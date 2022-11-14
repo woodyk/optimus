@@ -43,7 +43,7 @@ curl -XPUT "$1:9200/_ilm/policy/optimus_policy?pretty" -H 'Content-Type: applica
         }
       },
       "delete": {
-        "min_age": "25h",
+        "min_age": "26h",
         "actions": {
           "delete": {}
         }

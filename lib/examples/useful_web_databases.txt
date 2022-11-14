@@ -1,0 +1,12 @@
+# Ripe database download
+https://ftp.ripe.net/ripe/dbase/
+
+# ARIN lookups for companies WHOIS-RWS
+https://whois.arin.net/ui/query.do?flushCache=true&queryinput=+tiktok*+&whoisSubmitButton=+
+
+# list of all registered companies
+https://www.sec.gov/Archives/edgar/cik-lookup-data.txt
+
+# list of all public domain suffixes
+https://publicsuffix.org/list/public_suffix_list.dat
+
