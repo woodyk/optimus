@@ -6,7 +6,6 @@
 use warnings;
 use strict;
 use bytes;
-use lib '../lib/perl5/lib';
 use JSON;
 use POSIX;
 use Socket;

@@ -26,10 +26,19 @@ Examples:
 ## Prepare elasticsearch for data.
 Create an elasticsearch template. Edit the script to and match index_patterns to your esPrefix in optimus.ini.
 ```
-bin/elasticsearch_template_mapping.sh <ES IP ADDRESS>
+bin/elasticsearch_setup.sh <ES IP ADDRESS>
 ```
 The following should be returned.
 ```
+Creating GeoIP pipeline.
+{
+  "acknowledged" : true
+}
+Creating index lifecycle policy.
+{
+  "acknowledged" : true
+}
+Creating index template mapping.
 {
   "acknowledged" : true
 }
@@ -43,6 +52,6 @@ Make changes to your needs.
 Once all your changes are made you can execute the following to build a docker instance tuned to your settings and execute it.
 ```
 docker build -t optimus .
-docker run -d --kernel-memory 5g --restart always --net=host -e OPTIMUS_INT=eth1 --name=optimus_eth1 optimus
+docker run -d --kernel-memory 5g --restart always --net=host -e OPTIMUS_ARGS='-i eth1 -c 5000 -e -s elasticsearch.server' --name=optimus_eth1 optimus
 ```
 
