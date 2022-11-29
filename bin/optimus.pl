@@ -111,6 +111,7 @@ GetOptions(
 	'server=s'	=> \$esNode,
 	'logging'	=> sub { $logging = 1},
 	'revlookup'	=> sub { $nameLookup = 1; },
+	'geoip!'	=> sub { $geoIp = 1; }
 );
 logIt("started.");
 
@@ -881,16 +882,17 @@ sub debugIt {
 #####################################
 sub help {
 	print "$0\n";
-	print "\t-i\tInterface to listen to.\n";
-	print "\t-p\tPath to pcap file for reading.\n";
-	print "\t-j\tOutput JSON to STDOUT for each packet.\n";
-	print "\t-d\tOutput debug information to STDOUT.\n";
 	print "\t-c\tNumber of packets to process. Only works when interface is defined.\n";
+	print "\t-d\tOutput debug information to STDOUT.\n";
 	print "\t-e\tEnable elastic search.\n";
-	print "\t-s\tElastic search server address with port. eg: 192.168.1.10:9200\n";
-	print "\t-l\tEnable syslog logging.\n";
-	print "\t-r\tEnable reverse DNS lookup. (much slower)\n";
+	print "\t-g\tEnable geoip collection.\n";
 	print "\t-h\tThis help output.\n";
+	print "\t-i\tInterface to listen to.\n";
+	print "\t-j\tOutput JSON to STDOUT for each packet.\n";
+	print "\t-l\tEnable syslog logging.\n";
+	print "\t-p\tPath to pcap file for reading.\n";
+	print "\t-r\tEnable reverse DNS lookup. (much slower)\n";
+	print "\t-s\tElastic search server address with port. eg: 192.168.1.10:9200\n";
 	print "\n";
 	print "Examples:\n";
 	print "\tListen to eth0 for 10 packets and output JSON.\n";
