@@ -377,7 +377,7 @@ curl -XPUT "$1:9200/_index_template/optimus_template?pretty" -H 'Content-Type: a
             "reserved": {
               "type": "long"
             },
-            "seq": {
+            "seqnum": {
               "type": "long"
             },
             "srcport": {
@@ -386,7 +386,7 @@ curl -XPUT "$1:9200/_index_template/optimus_template?pretty" -H 'Content-Type: a
             "urg": {
               "type": "long"
             },
-            "window_size": {
+            "winsize": {
               "type": "long"
             }
           }

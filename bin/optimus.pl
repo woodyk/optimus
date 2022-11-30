@@ -48,10 +48,6 @@ my $dataSource  = $config->{'application'}->{'dataSource'};
 #####################################
 # Options for writing results to JSON 
 #####################################
-my $writeFile	= $config->{'application'}->{'writeFile'}; 
-my $filePath	= $config->{'application'}->{'filePath'}; 
-my $filePrefix	= $config->{'application'}->{'filePrefix'}; 
-my $fileSuffix	= $config->{'application'}->{'fileSuffix'}; 
 my $displayJson	= $config->{'application'}->{'displayJson'};
 
 #####################################
@@ -186,10 +182,6 @@ if (defined($pcapFile)) {
 	}
 }
 
-#if ($l7Enable == 1) {
-#	getPats();
-#}
-
 #####################################
 # Begin collection of samples.
 #####################################
@@ -199,6 +191,10 @@ trafSample($interface, $sample);
 # Process our output 
 #####################################
 sub output {
+	my $json;
+	my $jsonOut;
+	my @jsonArray;
+
 	$startTime = time();
 	debugIt("Output started.\n");
 
@@ -230,8 +226,10 @@ sub output {
 		$gi = MaxMind::DB::Reader->new(file => $geoIpDb);
 	}
 
+	if ($displayJson == 1) {
+	}
+
 	foreach my $key (keys(%{$ref})) {
-		my $json = JSON->new();	
 
 		my $hashSize = length($ref->{$key});
 		if ($hashSize <= 1) {
@@ -243,7 +241,6 @@ sub output {
 		$ref->{$key}->{interface} = $interface;
 		$ref->{$key}->{datasource} = $dataSource;
 
-		$json->indent();
 		if ($geoIp == 1) {
 			my $record;
 
@@ -288,20 +285,19 @@ sub output {
 					source	=> $ref->{$key} });
 		}
 
-		my $jsonOut = $json->utf8->encode($ref->{$key});
-
 		if ($displayJson == 1) {
-			print "$jsonOut\n";
+			$ref->{$key}->{id} = $key;
+			push(@jsonArray, $ref->{$key});
 		}
 
-		if ($writeFile == 1) {
-			if (!-d $filePath) {
-				mkdir($filePath, 0755);
-			}
-			open(my $FO, '>', "$filePath/$filePrefix$key$epoch$fileSuffix") || die "Unable to open file in $filePath for writing.\n";
-				print $FO $jsonOut;
-			close($FO);
-		}
+	}
+
+	if ($displayJson == 1) {
+		$json = JSON->new();	
+		$json->indent();
+		$json->canonical();
+		$jsonOut = $json->utf8->encode(\@jsonArray);
+		print "$jsonOut\n";
 	}
 
 	if ($elastic == 1) {
@@ -549,17 +545,17 @@ sub processPacket {
 		}
 		$tcpFlag =~ s/:$//;
 		
+		$ref->{$primaryKey}->{tcp}->{srcport}		= $tcp->{src_port};
+		$ref->{$primaryKey}->{tcp}->{dstport}		= $tcp->{dest_port};
+		$ref->{$primaryKey}->{tcp}->{seqnum}		= $tcp->{seqnum};
+		$ref->{$primaryKey}->{tcp}->{acknum}		= $tcp->{acknum};
+		$ref->{$primaryKey}->{tcp}->{hlen}		= $tcp->{hlen};
 		$ref->{$primaryKey}->{tcp}->{reserved}		= $tcp->{reserved};
+		$ref->{$primaryKey}->{tcp}->{flags}		= $tcpFlag;
+		$ref->{$primaryKey}->{tcp}->{winsize}		= $tcp->{winsize};
 		$ref->{$primaryKey}->{tcp}->{cksum}		= $tcp->{cksum};
 		$ref->{$primaryKey}->{tcp}->{urg}		= $tcp->{urg};
 		#$ref->{$primaryKey}->{tcp}->{options}		= $tcp->{options};
-		$ref->{$primaryKey}->{tcp}->{acknum}		= $tcp->{acknum};
-		$ref->{$primaryKey}->{tcp}->{flags}		= $tcpFlag;
-		$ref->{$primaryKey}->{tcp}->{hlen}		= $tcp->{hlen};
-		$ref->{$primaryKey}->{tcp}->{dstport}		= $tcp->{dest_port};
-		$ref->{$primaryKey}->{tcp}->{srcport}		= $tcp->{src_port};
-		$ref->{$primaryKey}->{tcp}->{seq}		= $tcp->{seqnum};
-		$ref->{$primaryKey}->{tcp}->{window_size}	= $tcp->{winsize};
 
 		if ($payload == 1) {
 			if ($payloadData) {
@@ -763,11 +759,10 @@ sub addTag {
 sub getClean {
 	my $mess = shift;
 	if ($payload == 1) {
-		my $getBits = $plBits;
 		$mess =~ s/\n|\r|\x0D/\./g;
 		$mess =~ s/[^[:ascii:]]|[^[:print:]]/\./g;
 		#$mess =~ s/[^ -~]/\./g;
-		$mess = substr($mess, 0, $getBits);
+		$mess = substr($mess, 0, $plBits);
 	} else {
 		$mess = "";
 	}
