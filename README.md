@@ -52,6 +52,6 @@ Make changes to your needs.
 Once all your changes are made you can execute the following to build a docker instance tuned to your settings and execute it.
 ```
 docker build -t optimus .
-docker run -d --kernel-memory 5g --restart always --net=host -e OPTIMUS_ARGS='-i eth1 -c 5000 -e -s elasticsearch.server' --name=optimus_eth1 optimus
+docker run -d --restart always -p 8000:8000 --net=host -e OPTIMUS_ARGS='-i eth1 -c 5000 -e -s elasticsearch.server' --name=optimus_eth1 optimus
 ```
 
