@@ -39,50 +39,28 @@ my $config = Config::Tiny->read($confFile, 'utf8');
 #print Dumper $config;
 
 #####################################
-# Running config options	
-#####################################
-my $debug       = $config->{'application'}->{'debug'}; 
-my $useTags	= $config->{'application'}->{'useTags'}; 
-my $dataSource  = $config->{'application'}->{'dataSource'}; 
-
-#####################################
-# Options for writing results to JSON 
-#####################################
-my $displayJson	= $config->{'application'}->{'displayJson'};
-
-#####################################
-# ElasticSearch options 
-#####################################
-my $elastic	= $config->{'application'}->{'elastic'}; 
-my $esPrefix	= $config->{'application'}->{'esPrefix'}; 
-my $esNode	= $config->{'application'}->{'esNode'}; 
-
-#####################################
 # Packet Capture options 
 #####################################
-my $interface	= $config->{'application'}->{'interface'}; 
 my $hwVendor	= $config->{'application'}->{'hwVendor'}; 
 my $ouiFile	= $config->{'application'}->{'ouiFile'}; 
 my $ouiUrl	= $config->{'application'}->{'ouiUrl'};
 my $payload	= $config->{'application'}->{'payload'}; 
 my $plBits	= $config->{'application'}->{'plBits'}; 
-my $sample	= $config->{'application'}->{'sample'}; 
-my $maxPerDest	= $config->{'application'}->{'maxPerDest'}; 
-my $ip6Enable	= $config->{'application'}->{'ip6Enable'}; 
-my $l2Enable	= $config->{'application'}->{'l2Enable'};
 my $l7Enable	= $config->{'application'}->{'l7Enable'}; 
-my $geoIp	= $config->{'application'}->{'geoIp'}; 
 my $geoIpDb	= $config->{'application'}->{'geoIpDb'};
-my $nameLookup	= $config->{'application'}->{'nameLookup'};
-
-#####################################
-# Prep and enable logging
-#####################################
-my $logging     = $config->{'application'}->{'logging'}; 
 
 # Time to declare your items
 my $ref; 				# data container for all the collected samples
+my $interface;
 my $beanCounter;			# packet counter
+my $debug;
+my $displayJson;
+my $dataSource = "live";
+my $logging;
+my $esPrefix = "packets_";
+my $esNode;
+my $geoIp;
+my $nameLookup;
 my $e;					# elasticsearch handle
 my $bulk;				# elasticsearch bulk handle
 my %oui;
@@ -93,6 +71,7 @@ my $message;
 my $counter;
 my $pcapFile;
 my %patterns;
+my $sample;
 my ($startTime, $stopTime, $runTime);
 
 # Get command line options.
@@ -103,10 +82,10 @@ GetOptions(
 	'debug!'	=> sub { $debug = 1; },
 	'count=i'	=> \$sample,
 	'help!'		=> \&help,
-	'elastic'	=> sub { $elastic = 1},
 	'server=s'	=> \$esNode,
 	'logging'	=> sub { $logging = 1},
 	'revlookup'	=> sub { $nameLookup = 1; },
+	'tag=s'		=> \$dataSource,
 	'geoip!'	=> sub { $geoIp = 1; }
 );
 logIt("started.");
@@ -114,11 +93,27 @@ logIt("started.");
 local $ENV{TZ} = 'UTC';
 my $hostname = hostname();
 
-if ($elastic == 1 && $geoIp == 1) {
-	$message = "Disabling GeoIp.  Elastic search pipelines should be used for GeoIP recording.\n";
+if (defined($esNode)) {
+	if ($esNode !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}$/) {
+       		$message = "error: IP address not valid.\n";
+       		print "$message";
+       		logIt($message);
+       		exit;
+	}
+
+	if (defined($geoIp)) {
+		$message = "Disabling GeoIp.  Elastic search pipelines should be used for GeoIP recording.\n";
+		print "$message";
+		logIt($message);
+		undef($geoIp);
+	}
+}
+
+if (defined($interface) && !defined($sample)) {
+	$message = "No packet count has been defined. Use -c.\n";
 	print "$message";
 	logIt($message);
-	$geoIp = 0;
+	exit;
 }
 
 #####################################
@@ -171,13 +166,16 @@ if ($hwVendor == 1) {
 #####################################
 
 if (defined($pcapFile)) {
+	$interface = "pcap";
 	if (!-e $pcapFile) {
 		$message = "Unable to find file $pcapFile for processing.\n";
 		print "$message";
 		logIt($message);
 		exit;
 	} else {
-		$sample = -1;
+		if (!defined($sample)) {
+			$sample = -1;
+		}
 		$offline = 1;
 	}
 }
@@ -202,13 +200,7 @@ sub output {
 	my $indexstamp = strftime("%Y.%m.%d.%H", localtime());
 	my $indexname = $esPrefix.$indexstamp;
 
-	if ($elastic == 1) {
-		if ($esNode !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}$/) {
-        		$message = "error: IP address not valid.\n";
-        		print "$message";
-        		logIt($message);
-        		exit;
-		}
+	if (defined($esNode)) {
 		$e = Search::Elasticsearch->new( nodes => $esNode ); 
 
 		unless ($e->indices->exists(index => "$indexname")) {
@@ -222,11 +214,8 @@ sub output {
 
 	$counter = 0;
 	my $result;
-	if ($geoIp == 1) {
+	if (defined($geoIp)) {
 		$gi = MaxMind::DB::Reader->new(file => $geoIpDb);
-	}
-
-	if ($displayJson == 1) {
 	}
 
 	foreach my $key (keys(%{$ref})) {
@@ -241,7 +230,7 @@ sub output {
 		$ref->{$key}->{interface} = $interface;
 		$ref->{$key}->{datasource} = $dataSource;
 
-		if ($geoIp == 1) {
+		if (defined($geoIp)) {
 			my $record;
 
 			if ($ref->{$key}->{ip}->{src}) {
@@ -274,25 +263,25 @@ sub output {
 
 		}
 
-		if ($nameLookup == 1) {	
+		if (defined($nameLookup)) {	
 			$ref->{$key}->{dns}->{src} = revDns($ref->{$key}->{ip}->{src});
 			$ref->{$key}->{dns}->{dst} = revDns($ref->{$key}->{ip}->{dst});
 		}
 			
-		if ($elastic == 1) {
+		if (defined($esNode)) {
 			$bulk->create({ index 	=> $indexname,
 					id	=> $key,
 					source	=> $ref->{$key} });
 		}
 
-		if ($displayJson == 1) {
+		if (defined($displayJson)) {
 			$ref->{$key}->{id} = $key;
 			push(@jsonArray, $ref->{$key});
 		}
 
 	}
 
-	if ($displayJson == 1) {
+	if (defined($displayJson)) {
 		$json = JSON->new();	
 		$json->indent();
 		$json->canonical();
@@ -300,7 +289,7 @@ sub output {
 		print "$jsonOut\n";
 	}
 
-	if ($elastic == 1) {
+	if (defined($esNode)) {
 		$result = $bulk->flush;
 		$message = "Wrote $counter packets to elasticsearch\n";
 		debugIt($message);
@@ -357,7 +346,7 @@ sub processPacket {
         my ($user_data, $header, $packet) = @_;
 	
 	# ETHERNET declarations
-	my ($ether, $l2, $srcMac, $dstMac, $l2type);
+	my ($ether, $srcMac, $dstMac, $l2type);
 
 	# IP declarations
 	my $ip;
@@ -403,25 +392,47 @@ sub processPacket {
 	$eth_obj	= NetPacket::Ethernet->decode($packet);
 
 	# decimal number for ARP 2054:
+	if ($eth_obj->{type} == "2054") {
+		my $arp_obj = NetPacket::ARP->decode($eth_obj->{data}, $eth_obj);
 
-	if ($l2Enable == 1) {
-		if ($eth_obj->{type} == "2054") {
-			my $arp_obj = NetPacket::ARP->decode($eth_obj->{data}, $eth_obj);
-	
-			$ref->{$primaryKey}->{protos}->{l2}   = "arp";
-			$ref->{$primaryKey}->{arp}->{htype}  = $arp_obj->{htype};
-			$ref->{$primaryKey}->{arp}->{proto}  = $arp_obj->{proto};
-			$ref->{$primaryKey}->{arp}->{hlen}   = $arp_obj->{hlen};
-			$ref->{$primaryKey}->{arp}->{opcode} = $arp_obj->{opcode};
-			$ref->{$primaryKey}->{arp}->{sha}    = uc($arp_obj->{sha});
-			$ref->{$primaryKey}->{arp}->{spa}    = uc($arp_obj->{spa});
-			$ref->{$primaryKey}->{arp}->{tha}    = uc($arp_obj->{tha});
-			$ref->{$primaryKey}->{arp}->{tpa}    = uc($arp_obj->{tpa});
-	
-		} elsif ($eth_obj->{type} == "2048") {
-			$ref->{$primaryKey}->{protos}->{l2} = "ip_route";
+		$ref->{$primaryKey}->{protos}->{l2}   = "arp";
+		$ref->{$primaryKey}->{arp}->{htype}  = $arp_obj->{htype};
+		$ref->{$primaryKey}->{arp}->{proto}  = $arp_obj->{proto};
+		$ref->{$primaryKey}->{arp}->{hlen}   = $arp_obj->{hlen};
+		$ref->{$primaryKey}->{arp}->{opcode} = $arp_obj->{opcode};
+		$ref->{$primaryKey}->{arp}->{sha}    = uc($arp_obj->{sha});
+		$ref->{$primaryKey}->{arp}->{spa}    = uc($arp_obj->{spa});
+		$ref->{$primaryKey}->{arp}->{tha}    = uc($arp_obj->{tha});
+		$ref->{$primaryKey}->{arp}->{tpa}    = uc($arp_obj->{tpa});
 
+	} elsif ($eth_obj->{type} == "2048") {
+		$ref->{$primaryKey}->{protos}->{l2} = "ip_route";
+
+	}
+
+	$srcMac  = $eth_obj->{src_mac};
+	$dstMac = $eth_obj->{dest_mac};
+	$srcMac  = uc($srcMac);
+	$dstMac = uc($dstMac);
+	$l2type  = $eth_obj->{type};
+	$ref->{$primaryKey}->{mac}->{src}  = $srcMac;
+	$ref->{$primaryKey}->{mac}->{dst}  = $dstMac;
+	if ($hwVendor == 1) {
+		my $srcV = substr($srcMac, 0, 6);
+		my $dstV = substr($dstMac, 0, 6);
+		if (exists($oui{$srcV})) {
+			$srcV = $oui{$srcV};
+		} else {
+			$srcV = "Unknown";
 		}
+
+		if (exists($oui{$dstV})) {
+			$dstV = $oui{$dstV};
+		} else {
+			$dstV = "Unknown";
+		}
+		$ref->{$primaryKey}->{mac}->{src_vendor} = $srcV;
+		$ref->{$primaryKey}->{mac}->{dst_vendor} = $dstV;
 	}
 
 	$ip = NetPacket::IP->decode($ether);
@@ -457,7 +468,7 @@ sub processPacket {
 	}
 
 
-	if ($ip->{ver} == 6 && $ip6Enable == 1) {
+	if ($ip->{ver} == 6) {
 
 		$ref->{$primaryKey}->{protos}->{l3} = "ipv6";
 
@@ -486,39 +497,6 @@ sub processPacket {
 	# Only collect N samples perl destination IP;
 	$beanCounter->{$ipAddressForBeanCounter}++;
 
-	if ($maxPerDest > 0 && $beanCounter->{$ipAddressForBeanCounter} >= $maxPerDest) {
-		return;
-	}
-
-        if ($l2Enable == 1) {
-                $l2      = NetPacket::Ethernet->decode($packet);
-                $srcMac  = $l2->{src_mac};
-                $dstMac = $l2->{dest_mac};
-                $srcMac  = uc($srcMac);
-                $dstMac = uc($dstMac);
-                $l2type  = $l2->{type};
-                $ref->{$primaryKey}->{mac}->{src}  = $srcMac;
-                $ref->{$primaryKey}->{mac}->{dst}  = $dstMac;
-                if ($hwVendor == 1) {
-                        my $srcV = substr($srcMac, 0, 6);
-                        my $dstV = substr($dstMac, 0, 6);
-                        if (exists($oui{$srcV})) {
-                                $srcV = $oui{$srcV};
-                        } else {
-                                $srcV = "Unknown";
-                        }
-
-                        if (exists($oui{$dstV})) {
-                                $dstV = $oui{$dstV};
-                        } else {
-                                $dstV = "Unknown";
-                        }
-                        $ref->{$primaryKey}->{mac}->{src_vendor} = $srcV;
-                        $ref->{$primaryKey}->{mac}->{dst_vendor} = $dstV;
-
-                }
-           
-        }
 
 	
         if ($ipProto eq "tcp") {
@@ -741,15 +719,13 @@ logIt("stopped. $counter packets processed.");
 #####################################
 sub addTag {
 	my($pkey, $tag) = @_;
-	if ($useTags == 1) {
-		foreach my $value (@{$ref->{$pkey}->{tags}}) {
-			if ($value eq $tag) {
-				return;
-			}
+	foreach my $value (@{$ref->{$pkey}->{tags}}) {
+		if ($value eq $tag) {
+			return;
 		}
-
-		push(@{$ref->{$pkey}->{tags}}, "$tag");
 	}
+
+	push(@{$ref->{$pkey}->{tags}}, "$tag");
 	return;
 }
 
@@ -853,7 +829,7 @@ sub getPats {
 #####################################
 sub logIt {
 	$message = shift;
-	if ($logging == 1) {
+	if (defined($logging)) {
 		openlog("$0", "ndelay,pid", "local0");
 		syslog("info|local0", $message);
 		closelog();
@@ -866,7 +842,7 @@ sub logIt {
 #####################################
 sub debugIt {
 	$message = shift;
-	if ($debug == 1) {
+	if (defined($debug)) {
 		print "$message";
 	}
 	return;
@@ -879,7 +855,6 @@ sub help {
 	print "$0\n";
 	print "\t-c\tNumber of packets to process. Only works when interface is defined.\n";
 	print "\t-d\tOutput debug information to STDOUT.\n";
-	print "\t-e\tEnable elastic search.\n";
 	print "\t-g\tEnable geoip collection.\n";
 	print "\t-h\tThis help output.\n";
 	print "\t-i\tInterface to listen to.\n";
@@ -888,6 +863,7 @@ sub help {
 	print "\t-p\tPath to pcap file for reading.\n";
 	print "\t-r\tEnable reverse DNS lookup. (much slower)\n";
 	print "\t-s\tElastic search server address with port. eg: 192.168.1.10:9200\n";
+	print "\t-t\tLabel name for your datasource.\n";
 	print "\n";
 	print "Examples:\n";
 	print "\tListen to eth0 for 10 packets and output JSON.\n";
@@ -897,7 +873,7 @@ sub help {
 	print "\t$0 -p /path/to/pcap -j\n";
 	print "\n";
 	print "\tListen to eth0 for 1000 packets and inject data to elasticsearch.\n";
-	print "\t$0 -i eth0 -c 1000 -e -s 192.168.0.10:9200\n";
+	print "\t$0 -i eth0 -c 1000 -s 192.168.0.10:9200\n";
 	print "\n";
 	
 	exit;
