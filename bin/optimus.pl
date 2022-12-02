@@ -824,14 +824,14 @@ Examples:
 
 	$0 -i eth0 -c 10 -j --l7 -g
 
-	Read from pcap file and output JSON.
+	Read from pcap file and output JSON, enable L7, process GeoIP..
 
-	$0 -p /path/to/pcap -j
+	$0 -p /path/to/pcap -j -g --l7
 
 	Listen to eth0 for 1000 packets ,inject to elasticsearch, capture
 	1024 bytes of payload, process layer7 data.
 
-	$0 -i eth0 -c 1000 -s 192.168.0.10:9200 -b 1024 --l7
+	$0 -i eth0 -c 1000 --server 192.168.0.10:9200 --bytes 1024 --l7
 
 menuEnd
 
