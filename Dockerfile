@@ -12,6 +12,8 @@ RUN cpanm -f -n Search::Elasticsearch
 
 WORKDIR /optimus
 COPY . . 
+COPY etc/apache2.conf /etc/apache2/
+COPY etc/php.ini /etc/php/8.1/apache2/
 
 ENV PATH "/optimus/bin:$PATH"
 
