@@ -56,16 +56,18 @@ my $pktCounter;				# Packet counter.
 my $sample;				# Variable for number of packets to collect.
 my $l7Enable;				# Layer 7 data collection default off.
 my $payloadBytes;			# Number of bytes to collect from the payload.
+my $dummy;
 my $message;
 
 # Get command line options.
 GetOptions(
+	'bytes=i'	=> \$payloadBytes,
+	'count=i'	=> \$sample,
+	'debug'		=> sub { $debug = 1; },
+	'dummy'		=> sub { $dummy = 1; },
         'interface=s'   => \$interface,
         'pcap=s'        => \$pcapFile,
         'json'		=> sub { $displayJson = 1; },
-	'debug'		=> sub { $debug = 1; },
-	'count=i'	=> \$sample,
-	'bytes=i'	=> \$payloadBytes,
 	'help'		=> \&help,
 	'server=s'	=> \$esNode,
 	'l7'		=> sub { $l7Enable = 1; },
@@ -76,7 +78,14 @@ GetOptions(
 );
 logIt("started.");
 
+# Dummy mode for testing and docker api only.
+if (defined($dummy)) {
+	print "Running in dummy mode.\n";
+	sleep 120;
+	exit;
+}
 
+# Sanity checks for elasticsearch switches.
 if (defined($esNode)) {
 	if ($esNode !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}$/) {
        		$message = "error: IP address not valid.\n";
@@ -93,6 +102,7 @@ if (defined($esNode)) {
 	}
 }
 
+# Sanity checks for interface switches.
 if (defined($interface) && !defined($sample)) {
 	$message = "No packet count has been defined. Use -c.\n";
 	print "$message";
@@ -162,7 +172,8 @@ if (defined($pcapFile)) {
 }
 
 #####################################
-# Begin collection of samples.
+# Begin collection of samples and
+# output the parsed results.
 #####################################
 capture($interface, $sample);
 output();
@@ -171,7 +182,6 @@ output();
 # Process our output 
 #####################################
 sub output {
-
 	debugIt("Starting output processing.\n");
 
 	my @jsonArray;
@@ -213,42 +223,44 @@ sub output {
 		$ref->{$key}->{interface} = $interface;
 		$ref->{$key}->{datasource} = $dataSource;
 
-		if (defined($geoIp)) {
-			my $record;
+		if ($ref->{$key}->{protos}->{l2} eq "ip_route") {
+			if (defined($geoIp)) {
+				my $record;
+	
+				if ($ref->{$key}->{ip}->{src}) {
+					if ($record = $gi->record_for_address($ref->{$key}->{ip}->{src})) {
+						$ref->{$key}->{geoip}->{src}->{country_code} = $record->{country}->{iso_code};
+						$ref->{$key}->{geoip}->{src}->{country_name} = $record->{country}->{names}->{en};
+						$ref->{$key}->{geoip}->{src}->{city} = $record->{city}->{names}->{en};
+						$ref->{$key}->{geoip}->{src}->{postal_code} = $record->{postal}->{code};
+						$ref->{$key}->{geoip}->{src}->{location} = $record->{location}->{latitude}.",".$record->{location}->{longitude};
+						$ref->{$key}->{geoip}->{src}->{time_zone} = $record->{location}->{time_zone};
+						$ref->{$key}->{geoip}->{src}->{continent_name} = $record->{continent}->{names}->{en};
+						$ref->{$key}->{geoip}->{src}->{subdivision_code} = $record->{subdivisions}[0]->{iso_code};
+						$ref->{$key}->{geoip}->{src}->{subdivision_name} = $record->{subdivisions}[0]->{names}->{en};
+					}
+				}
 
-			if ($ref->{$key}->{ip}->{src}) {
-				if ($record = $gi->record_for_address($ref->{$key}->{ip}->{src})) {
-					$ref->{$key}->{geoip}->{src}->{country_code} = $record->{country}->{iso_code};
-					$ref->{$key}->{geoip}->{src}->{country_name} = $record->{country}->{names}->{en};
-					$ref->{$key}->{geoip}->{src}->{city} = $record->{city}->{names}->{en};
-					$ref->{$key}->{geoip}->{src}->{postal_code} = $record->{postal}->{code};
-					$ref->{$key}->{geoip}->{src}->{location} = $record->{location}->{latitude}.",".$record->{location}->{longitude};
-					$ref->{$key}->{geoip}->{src}->{time_zone} = $record->{location}->{time_zone};
-					$ref->{$key}->{geoip}->{src}->{continent_name} = $record->{continent}->{names}->{en};
-					$ref->{$key}->{geoip}->{src}->{subdivision_code} = $record->{subdivisions}[0]->{iso_code};
-					$ref->{$key}->{geoip}->{src}->{subdivision_name} = $record->{subdivisions}[0]->{names}->{en};
+				if ($ref->{$key}->{ip}->{dst}) {
+					if ($record = $gi->record_for_address($ref->{$key}->{ip}->{dst})) {
+						$ref->{$key}->{geoip}->{dst}->{country_code} = $record->{country}->{iso_code};
+						$ref->{$key}->{geoip}->{dst}->{country_name} = $record->{country}->{names}->{en};
+						$ref->{$key}->{geoip}->{dst}->{city} = $record->{city}->{names}->{en};
+						$ref->{$key}->{geoip}->{dst}->{postal_code} = $record->{postal}->{code};
+						$ref->{$key}->{geoip}->{dst}->{location} = $record->{location}->{latitude}.",".$record->{location}->{longitude};
+						$ref->{$key}->{geoip}->{dst}->{time_zone} = $record->{location}->{time_zone};
+						$ref->{$key}->{geoip}->{dst}->{continent_name} = $record->{continent}->{names}->{en};
+						$ref->{$key}->{geoip}->{dst}->{subdivision_code} = $record->{subdivisions}[0]->{iso_code};
+						$ref->{$key}->{geoip}->{dst}->{subdivision_name} = $record->{subdivisions}[0]->{names}->{en};
+					}
 				}
 			}
 
-			if ($ref->{$key}->{ip}->{dst}) {
-				if ($record = $gi->record_for_address($ref->{$key}->{ip}->{dst})) {
-					$ref->{$key}->{geoip}->{dst}->{country_code} = $record->{country}->{iso_code};
-					$ref->{$key}->{geoip}->{dst}->{country_name} = $record->{country}->{names}->{en};
-					$ref->{$key}->{geoip}->{dst}->{city} = $record->{city}->{names}->{en};
-					$ref->{$key}->{geoip}->{dst}->{postal_code} = $record->{postal}->{code};
-					$ref->{$key}->{geoip}->{dst}->{location} = $record->{location}->{latitude}.",".$record->{location}->{longitude};
-					$ref->{$key}->{geoip}->{dst}->{time_zone} = $record->{location}->{time_zone};
-					$ref->{$key}->{geoip}->{dst}->{continent_name} = $record->{continent}->{names}->{en};
-					$ref->{$key}->{geoip}->{dst}->{subdivision_code} = $record->{subdivisions}[0]->{iso_code};
-					$ref->{$key}->{geoip}->{dst}->{subdivision_name} = $record->{subdivisions}[0]->{names}->{en};
-				}
+			if (defined($nameLookup)) {	
+				$ref->{$key}->{dns}->{src} = revDns($ref->{$key}->{ip}->{src});
+				$ref->{$key}->{dns}->{dst} = revDns($ref->{$key}->{ip}->{dst});
 			}
 
-		}
-
-		if (defined($nameLookup) && $ref->{$key}->{protos}->{l2} eq "ip_route") {	
-			$ref->{$key}->{dns}->{src} = revDns($ref->{$key}->{ip}->{src});
-			$ref->{$key}->{dns}->{dst} = revDns($ref->{$key}->{ip}->{dst});
 		}
 			
 		if (defined($esNode)) {
@@ -288,11 +300,11 @@ sub output {
 }
 
 #####################################
-# Network traffic sampling 
+# Capture network traffic 
 #####################################
 sub capture {
-
 	debugIt("Starting packet capture.\n");
+
 	my $startTime = time();
 
 	my ($dev, $packets) = @_;
@@ -330,7 +342,7 @@ sub capture {
 }
 
 #####################################
-# Network traffic parsing 
+# Network packet parser
 #####################################
 sub packetParse {
         my ($user_data, $header, $packet) = @_;
@@ -514,6 +526,7 @@ sub packetParse {
                         }
 
 		}
+
 	# UDP
         } elsif ($ipProto eq "udp") {
         	my $udp = NetPacket::UDP->decode($ip->{data});
@@ -548,6 +561,7 @@ sub packetParse {
 				$ref->{$primaryKey}->{protos}->{l7} = "ntp";
 			}
 		}
+
 	# ICMP
         } elsif ($ipProto eq "icmp") {
         	my $icmp = NetPacket::ICMP->decode($ip->{data});
@@ -563,6 +577,7 @@ sub packetParse {
 				$ref->{$primaryKey}->{icmp}->{data} = toAscii($payloadData);
 			}
 		}
+
 	# ICMPv6
 	} elsif ($ipProto eq "ipv6-icmp") {
 		my $icmpV6 = NetPacket::ICMPv6->decode(ipv6_strip(eth_strip($packet)));
@@ -579,6 +594,7 @@ sub packetParse {
 				$ref->{$primaryKey}->{ipv6_icmp}->{data} = toAscii($payloadData);
 			}
 		}
+
 	# IGMP
 	} elsif ($ipProto eq "igmp") {
         	my $igmp = NetPacket::IGMP->decode($ip->{data});
@@ -695,7 +711,8 @@ sub addTag {
 }
 
 #####################################
-# Clean up payload data for human consumption 
+# Convert payload data to ASCII
+# printable 
 #####################################
 sub toAscii {
 	my $pktData = shift;
@@ -742,7 +759,7 @@ sub getFlags {
 }
 
 #####################################
-# log the message given 
+# Log messages to syslog local0 
 #####################################
 sub logIt {
 	$message = shift;
@@ -755,7 +772,7 @@ sub logIt {
 }
 
 #####################################
-# print message to stdout for debug 
+# Print message to stdout for debug 
 #####################################
 sub debugIt {
 	$message = shift;
@@ -766,9 +783,8 @@ sub debugIt {
 }
 
 #####################################
-# Reverse DNS recorder
+# Reverse DNS lookup on ip addresses 
 #####################################
-
 sub revDns {
 	my $ip = shift;
 	if (defined($ip)) {
@@ -790,7 +806,8 @@ sub help {
 $0
 	-c	Number of packets to process.
 	-b	Number of bytes to collect from the payload. Default: none
-	-d	Output debug information to STDOUT.
+	--debug	Output debug information to STDOUT.
+	--dummy Run in dummy mode. No actions taken just run for 120 seconds.
 	-g	Enable geoip collection.
 	-h	This help output.
 	-i	Interface to listen to.
@@ -822,5 +839,3 @@ menuEnd
 
 	exit;
 }
-
-
