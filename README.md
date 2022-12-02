@@ -17,6 +17,7 @@ Tools such as tshark proved to be more than I needed.  Optimus simplifies the ta
 
 ## Features
 
+### Overview
 - Indexes network traffic to Elasticsearch.
 - Data ready for tools such as Kibana.
 - Enriches your traffic data with reverse DNS, HTTP headers, GeoIP, and MAC vendor details.
@@ -25,11 +26,31 @@ Tools such as tshark proved to be more than I needed.  Optimus simplifies the ta
 - Provides JSON output for use with your own applications.
 - Creates Elasticsearch template mappings, index policy, and GeoIP injest pipelines.
 
+### Supported Protocol Recognition
+
+| Protocol | OSI Layer |
+| :--- | :---: |
+| `Ethernet` | 2 |
+| `ARP` | 2 |
+| `IP_ROUTE` | 2 |
+| `IP` | 3 |
+| `IPv6` | 3 |
+| `ICMP` | 3 |
+| `ICMPv6` | 3 |
+| `IGMP` | 3 |
+| `TCP` | 4 |
+| `UDP` | 4 |
+| `HTTP` | 7 |
+| `SSL` | 7 |
+| `SSH` | 7 |
+| `DNS-MDNS` | 7 |
+| `NTP` | 7 |
+
 ### Supported Elasticsearch Versions
 
-|Elasticsearch|Optimus|
-|-|-|
-|8.x|current|
+| Elasticsearch | Optimus |
+| :---: | :---: |
+| 8.x | current |
 
 ---
 
