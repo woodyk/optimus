@@ -21,7 +21,6 @@ if (empty($_FILES['upload'])) {
 			<div id="drop">
 				Upload Pcap	
 				<br />
-				<br />
 				<input type="file" name="upload" value="Browse"></input>
 				<input type="submit" value="Upload"></input>
 			</div>
