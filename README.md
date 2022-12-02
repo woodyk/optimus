@@ -25,6 +25,12 @@ Tools such as tshark proved to be more than I needed.  Optimus simplifies the ta
 - Provides JSON output for use with your own applications.
 - Creates Elasticsearch template mappings, index policy, and GeoIP injest pipelines.
 
+### Supported Elasticsearch Versions
+
+|Elasticsearch|Optimus|
+|-|-|
+|8.x|current|
+
 ---
 
 ## Installation
