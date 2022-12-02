@@ -1,6 +1,7 @@
 #!/usr/bin/perl
-# Optimus packet to profile transform generator 
-# network traffic distribution generator and indexer
+# Optimus 
+# 
+# Author: Wadih Khairallah 
 #
 
 use strict;

@@ -1,28 +1,29 @@
 # Optimus
+![Built With PERL](https://img.shields.io/badge/built%20with-PERL-blue) ![Built With Docker](https://img.shields.io/badge/built%20with-Docker-blue) ![Built With Elasticsearch](https://img.shields.io/badge/built%20with-Elasticsearch-green) ![Built With Kibana](https://img.shields.io/badge/built%20with-Kibana-ff69b4) ![Built With BASH](https://img.shields.io/badge/built%20with-BASH-2d3b3e) ![Built With PHP](https://img.shields.io/badge/built%20with-PHP-7b86b9)
 
 ## About
 
-Optimus is a simple network packet indexer for ElasticSearch.
+Optimus is a simple network packet indexer for Elasticsearch.
 
-Tools such as tshark proved to be more than I needed.  Optimus simplifies the task of indexing the most used protocols into ElasticSearch.  Capable of live network sampling or importing of pcaps.  Optimus can have you quickly indexing, and searching your network information with tools such as Kibana.  Optimus is not meant for 100% continuous network packet collection.  Instead, the idea is to gather enough packets to enable quick, easy, and accurate research of your traffic.
+Tools such as tshark proved to be more than I needed.  Optimus simplifies the task of indexing the most used protocols into Elasticsearch.  Capable of live network sampling or importing of pcaps.  Optimus can have you quickly indexing, and searching your network information with tools such as Kibana.  Optimus is not meant for 100% continuous network packet collection.  Instead, the idea is to gather enough packets to enable quick, easy, and accurate research of your traffic.
 
 ---
 
 ## Current Status
 
-> **Note** This project is currently under active development and there are no guarantees of functionality.
+> **Note** This project is currently under early development and there are no guarantees of functionality.
 
 ---
 
 ## Features
 
-- Indexes network traffic to ElasticSearch.
+- Indexes network traffic to Elasticsearch.
 - Data ready for tools such as Kibana.
 - Enriches your traffic data with reverse DNS, HTTP headers, GeoIP, and MAC vendor details.
 - Capable of live traffic sampling or importing of pcaps.
 - Simple web API for processing pcap data.  Only supports JSON output at the moment.
 - Provides JSON output for use with your own applications.
-- Creates ElasticSearch template mappings, index policy, and GeoIP injest pipelines.
+- Creates Elasticsearch template mappings, index policy, and GeoIP injest pipelines.
 
 ---
 
@@ -78,7 +79,7 @@ Creating index template mapping.
 
 #### Running Optimus
 
-Optimus can be run with a few different options.  The following example would be very common. This will run once on interface eth0 for 1000 packets, injecting to ElasticSearch node 192.168.0.10:9200, saving 1024 bytes of the payload, and processing layer 7 information such as protocol and HTTP headers.
+Optimus can be run with a few different options.  The following example would be very common. This will run once on interface eth0 for 1000 packets, injecting to Elasticsearch node 192.168.0.10:9200, saving 1024 bytes of the payload, and processing layer 7 information such as protocol and HTTP headers.
 
 ```
 cd bin
@@ -100,7 +101,7 @@ docker build -t optimus .
 ```
 
 #### Run
-Run your continer as follows.  Populate the "OPTIMUS_ARGS" environment variable with the necessary arguments. Please see "Optimus Commandline Options" for more information.  This will run optimus continously, collecting 5000 packets at a time and injecting them into your ElasticSearch node. 
+Run your continer as follows.  Populate the "OPTIMUS_ARGS" environment variable with the necessary arguments. Please see "Optimus Commandline Options" for more information.  This will run optimus continously, collecting 5000 packets at a time and injecting them into your Elasticsearch node. 
 ```
 docker run -d --rm -p 8000:8000 -p 4430:4430 --net=host -e OPTIMUS_ARGS='-i eth1 -c 5000 --server 192.168.0.10:9200 --bytes 1024 --l7' --name=optimus_eth1 optimus
 ```
