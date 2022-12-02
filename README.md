@@ -1,32 +1,39 @@
 # optimus
 ```
 ./optimus.pl
-	-i	Interface to listen to.
-	-p	Path to pcap file for reading.
-	-j	Ouput JSON to STDOUT for each packet.
+	-c	Number of packets to process.
+	-b	Number of bytes to collect from the payload. Default: none
 	-d	Output debug information to STDOUT.
-	-c	Number of packets to process. Only works when interface is defined.
-	-e	Enable elastic search.
-	-s	Elastic search server address with port. eg: 192.168.1.10:9200
-	-l	Enable syslog logging.
-	-r	Enable reverse DNS lookup. (much slower)
+	-g	Enable geoip collection.
 	-h	This help output.
+	-i	Interface to listen to.
+	-j	Output JSON array to STDOUT.
+	-l	Enable syslog logging.
+	--l7	Enable layer 7 data collection.
+	-p	Path to pcap file for reading.
+	-r	Enable reverse DNS lookup. (much slower)
+	-s	Elastic search server address with port. eg: 192.168.1.10:9200
+	-t	Label name for your datasource.
 
 Examples:
-	Listen to eth0 for 10 packets and output JSON.
-	./optimus.pl -i eth0 -c 10 -j
+	Listen to eth0 for 10 packets, output JSON, enable L7, process GeoIP.
+
+	./optimus.pl -i eth0 -c 10 -j --l7 -g
 
 	Read from pcap file and output JSON.
+
 	./optimus.pl -p /path/to/pcap -j
 
-	Listen to eth0 for 1000 packets and inject data to elasticsearch.
-	./optimus.pl -i eth0 -c 1000 -e -s 192.168.0.10:9200
+	Listen to eth0 for 1000 packets ,inject to elasticsearch, capture
+	1024 bytes of payload, process layer7 data.
+
+	./optimus.pl -i eth0 -c 1000 -s 192.168.0.10:9200 -b 1024 --l7
 ```
 
 ## Prepare elasticsearch for data.
-Create an elasticsearch template. Edit the script to and match index_patterns to your esPrefix in optimus.ini.
+Prepare ElasticSearch for your data.
 ```
-bin/elasticsearch_setup.sh <ES IP ADDRESS>
+bin/elasticsearch_setup.sh <ES IP ADDRESS>:<PORT>
 ```
 The following should be returned.
 ```
@@ -44,14 +51,29 @@ Creating index template mapping.
 }
 ```
 
-## Docker Setup Example
-### Edit optimus.ini
-Make changes to your needs.
-
 ### Build Docker Images
 Once all your changes are made you can execute the following to build a docker instance tuned to your settings and execute it.
 ```
 docker build -t optimus .
-docker run -d --restart always -p 8000:8000 --net=host -e OPTIMUS_ARGS='-i eth1 -c 5000 -e -s elasticsearch.server' --name=optimus_eth1 optimus
+```
+Run your continer as follows.  Populate the "OPTIMUS_ARGS" environment variable with the necessary arguments. Please see the help output for more information.
+```
+docker run -d --restart always -p 8000:8000 --net=host -e OPTIMUS_ARGS='-i eth1 -c 5000 -s elasticsearch.server --bytes 1024 --l7' --name=optimus_eth1 optimus
 ```
 
+### Web API 
+#### Web Server
+First you must configure a webserver that supports php.  The DOCUMENT_ROOT should be the web directory.
+For a quick setup you can use the php built-in webserver to serve the API.
+```
+cd optimus/web
+php -S 0.0.0.0:8000
+```
+#### Using the API
+There are two ways the web api can be used.
+
+1. Go to the webserver IP address and upload pcaps using the form. eg: http://localhost:8000
+2. POST your pcap using a tool such as curl.
+```
+curl -F 'upload=@/path/to/pcap' http://localhost:8000
+```

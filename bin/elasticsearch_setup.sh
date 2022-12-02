@@ -251,6 +251,9 @@ curl -XPUT "$1:9200/_index_template/optimus_template?pretty" -H 'Content-Type: a
             },
             "ver": {
               "type": "long"
+            },
+            "type": {
+              "type": "keyword"
             }
           }
         },

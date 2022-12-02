@@ -9,6 +9,7 @@ use bytes;
 use JSON;
 use POSIX;
 use Socket;
+use Config::Tiny;
 use Getopt::Long;
 use Net::Pcap;
 use UUID::Tiny ':std';
@@ -31,48 +32,58 @@ use IPC::Open3;
 
 $SIG{INT} = sub { die "Caught a sigint $!" };
 $SIG{TERM} = sub { die "Caught a sigterm $!" };
-$ENV{TZ} = 'UTC';
 
-# Configurable options.
-my $ouiFile = '/tmp/wireshark_oui.txt';		# Location to store OUI data file.
-my $geoIpDb = '../lib/GeoLite2-City.mmdb';	# Path to geoip database.
-my $dataSource = "live";			# Default datasource label for JSON documents.
-my $esPrefix = "packets_";			# Elasticsearch index prefix.
-my $ouiUrl = 'https://gitlab.com/wireshark/wireshark/-/raw/master/manuf';	# URL to OUI data file.
-my $oui_sched = 86400;				# Age of OUI file before it is refreshed. 
+my $confFile = '../etc/optimus.ini';
+my $Config = Config::Tiny->new;
+my $config = Config::Tiny->read($confFile, 'utf8');
+#print Dumper $config;
 
+#####################################
+# Packet Capture options 
+#####################################
+my $payload	= $config->{'application'}->{'payload'}; 
+my $plBits	= $config->{'application'}->{'plBits'}; 
+my $l7Enable	= $config->{'application'}->{'l7Enable'}; 
+my $geoIpDb	= $config->{'application'}->{'geoIpDb'};
+
+# Time to declare your items
+local $ENV{TZ} = 'UTC';
 my $hostname = hostname();
+my $primaryKey;
 my $ref; 				# Hash reference for all the collected samples.
+my %oui;				# Hash for storing OUI data.
 my $interface;				# Network interface to listen to.
 my $beanCounter;			# Packet counter.
 my $debug;				# Debug default off.
 my $pcapFile;				# Variable to pcap file path.
 my $displayJson;			# JSON output default off.
-my $logging;				# Logging default off. 
+my $ouiFile = '/tmp/wireshark_oui.txt'; # Location to store OUI data file.
+my $dataSource = "live";		# Default datasource label for JSON documents.
+my $logging = 1;			# Logging default off. 
+my $esPrefix = "packets_";		# Elasticsearch index prefix.
 my $esNode;				# Elasticsearch node used for injection.
 my $geoIp;				# GeoIP lookup default off.
 my $nameLookup;				# Reverse DNS lookup default off.
+my $ouiUrl = 'https://gitlab.com/wireshark/wireshark/-/raw/master/manuf';	# URL to OUI data file.
 my $pktCounter;				# Packet counter.
-my $sample;				# Variable for number of packets to collect.
-my $l7Enable;				# Layer 7 data collection default off.
-my $payloadBytes;			# Number of bytes to collect from the payload.
 my $message;
+my %patterns;
+my $sample;
+my ($startTime, $stopTime, $runTime);
 
 # Get command line options.
 GetOptions(
         'interface=s'   => \$interface,
         'pcap=s'        => \$pcapFile,
-        'json'		=> sub { $displayJson = 1; },
-	'debug'		=> sub { $debug = 1; },
+        'json!'         => sub { $displayJson = 1; },
+	'debug!'	=> sub { $debug = 1; },
 	'count=i'	=> \$sample,
-	'bytes=i'	=> \$payloadBytes,
-	'help'		=> \&help,
+	'help!'		=> \&help,
 	'server=s'	=> \$esNode,
-	'l7'		=> sub { $l7Enable = 1; },
-	'log'		=> sub { $logging = 1},
+	'logging'	=> sub { $logging = 1},
 	'revlookup'	=> sub { $nameLookup = 1; },
 	'tag=s'		=> \$dataSource,
-	'geoip'		=> sub { $geoIp = 1; }
+	'geoip!'	=> sub { $geoIp = 1; }
 );
 logIt("started.");
 
@@ -104,11 +115,10 @@ if (defined($interface) && !defined($sample)) {
 # Make sure we have the IEEE Vendor data file
 # Checking if we should update.
 #####################################
-my %oui;
 my $oui_access;
-my $oui_age = 0;
-my $epoch = time();
-
+my $oui_age;
+my $epoch	  = time();
+my $oui_sched 	  = 86400; # How many seconds old does the oui.txt file need to be before we refresh it.
 if (-e $ouiFile) {
 	$oui_access 	  = (stat $ouiFile)[9];
 	$oui_age    	  = ($epoch - $oui_access);
@@ -120,7 +130,7 @@ if ($oui_age >= $oui_sched || !-f $ouiFile) {
 	waitpid($pid, 0);
 }
 
-open(my $OUI, '<', "$ouiFile") or die $!;
+open(my $OUI, '<', "$ouiFile") or warn $!;
 while (my $line = <$OUI>) {
 	if ($line !~ /^\#/) {
 		my($address, $vendor, $vendor_long) = split(/\t+/, $line);
@@ -133,14 +143,14 @@ while (my $line = <$OUI>) {
 			chomp($vendor_long);
 		} else {
 			$vendor_long = $vendor;
-		}
+	}
 
-		$address =~ s/://g;
-		$oui{$address} = $vendor_long;
+	$address =~ s/://g;
+	$oui{$address} = $vendor_long;
 	}
 }
 close($OUI);
-$oui{FFFFFF} = "broadcast";
+$oui{FFFFFF} = "unknown";
 
 #####################################
 # Check that a file has been given if
@@ -164,20 +174,18 @@ if (defined($pcapFile)) {
 #####################################
 # Begin collection of samples.
 #####################################
-capture($interface, $sample);
-output();
+trafSample($interface, $sample);
 
 #####################################
 # Process our output 
 #####################################
 sub output {
-
-	debugIt("Starting output processing.\n");
-
 	my @jsonArray;
 
-	my $startTime = time();
+	$startTime = time();
+	debugIt("Output started.\n");
 
+        my $epoch = time();
 	my $indexstamp = strftime("%Y.%m.%d.%H", localtime());
 	my $indexname = $esPrefix.$indexstamp;
 
@@ -246,7 +254,7 @@ sub output {
 
 		}
 
-		if (defined($nameLookup) && $ref->{$key}->{protos}->{l2} eq "ip_route") {	
+		if (defined($nameLookup)) {	
 			$ref->{$key}->{dns}->{src} = revDns($ref->{$key}->{ip}->{src});
 			$ref->{$key}->{dns}->{dst} = revDns($ref->{$key}->{ip}->{dst});
 		}
@@ -274,15 +282,14 @@ sub output {
 
 	if (defined($esNode)) {
 		my $result = $bulk->flush;
-		$message = "Wrote $pktCounter packets to elasticsearch.\n";
+		$message = "Wrote $pktCounter packets to elasticsearch\n";
 		debugIt($message);
 		logIt($message);
 	}
 
-	my $stopTime = time();
-	my $runTime = ($stopTime - $startTime);
-
-	debugIt("Finished output processing in $runTime seconds.\n");
+	$stopTime = time();
+	$runTime = ($stopTime - $startTime);
+	debugIt("Output processed in $runTime seconds.\n");
 
 	return;
 }
@@ -290,12 +297,8 @@ sub output {
 #####################################
 # Network traffic sampling 
 #####################################
-sub capture {
-
-	debugIt("Starting packet capture.\n");
-	my $startTime = time();
-
-	my ($dev, $packets) = @_;
+sub trafSample {
+	my ($dev, $runTime) = @_;
         my $err;
 	my $pcap;
 	my $filter = "";
@@ -317,31 +320,54 @@ sub capture {
         Net::Pcap::compile($pcap, \$filter_compiled, $filter, 0, 0) && warn "Unable to create filter.\n";;
 
         Net::Pcap::setfilter($pcap, $filter_compiled) && warn "Unable to set filter.\n";
-        #alarm $packets;
+        #alarm $runTime;
 
-        Net::Pcap::loop($pcap, $packets, \&packetParse, '');
+        Net::Pcap::loop($pcap, $runTime, \&processPacket, '');
 	Net::Pcap::close($pcap);
 
-	my $stopTime = time();
-	my $runTime = ($stopTime - $startTime);
+	output();
 
-	debugIt("Finished packet capture in $runTime seconds.\n");
 	return;
 }
 
 #####################################
 # Network traffic parsing 
 #####################################
-sub packetParse {
+sub processPacket {
         my ($user_data, $header, $packet) = @_;
 	
+	# ETHERNET declarations
+	my ($ether, $srcMac, $dstMac, $l2type);
+
+	# IP declarations
+	my $ip;
+
+	# IPv6 declarations
+	my $ip6;
+
+	# TCP delcarations
+	my ($tcp, $tcpFlag);
+
+	# UDP declarations
+	my $udp;
+
+	# ICMP declarations
+	my ($icmp, $icmpV6);
+
+	# IGMP declarations
+	my $igmp;
+
+	# Other declarations for sub processPacket
+	my $packetTime;
+	my $eth_obj;
 	my $payloadData;
 
 	# Assign a unique UUID for this packet.
-	my $primaryKey = uuid_to_string(create_uuid(UUID_RANDOM));
+	my $uuidBin = create_uuid(UUID_RANDOM);
+	$primaryKey = uuid_to_string($uuidBin);
 
-        my $ipAddressForBeanCounter = "unknown";
-	my $ipProto = "unknown";
+        my $ipAddressForBeanCounter = "UNKNOWN";
+	my $ipProto = "UNKNOWN";
 	$ref->{$primaryKey}->{protos}->{l2}   = "unknown";
 	$ref->{$primaryKey}->{protos}->{l3}   = "unknown";
 	$ref->{$primaryKey}->{protos}->{l4}   = "unknown";
@@ -350,14 +376,14 @@ sub packetParse {
 	$ref->{$primaryKey}->{protos}->{l7}   = "unknown";
 
 	# Set the time to the current minute rounded down to the first second.
-	my $packetTime = strftime("%Y-%m-%dT%H:%M:%S", localtime($header->{tv_sec}));
+	$packetTime = strftime("%Y-%m-%dT%H:%M:%S", localtime($header->{tv_sec}));
 	$ref->{$primaryKey}->{date} = $packetTime;
 
-	# Layer 2 data
-        my $ether = NetPacket::Ethernet::strip($packet);
-	my $eth_obj = NetPacket::Ethernet->decode($packet);
+        $ether		= NetPacket::Ethernet::strip($packet);
+	$eth_obj	= NetPacket::Ethernet->decode($packet);
 
-	if ($eth_obj->{type} == "2054") { #ARP
+	# decimal number for ARP 2054:
+	if ($eth_obj->{type} == "2054") {
 		my $arp_obj = NetPacket::ARP->decode($eth_obj->{data}, $eth_obj);
 
 		$ref->{$primaryKey}->{protos}->{l2}   = "arp";
@@ -370,17 +396,21 @@ sub packetParse {
 		$ref->{$primaryKey}->{arp}->{tha}    = uc($arp_obj->{tha});
 		$ref->{$primaryKey}->{arp}->{tpa}    = uc($arp_obj->{tpa});
 
-	} elsif ($eth_obj->{type} == "2048") { # IP_ROUTE
+	} elsif ($eth_obj->{type} == "2048") {
 		$ref->{$primaryKey}->{protos}->{l2} = "ip_route";
 
 	}
 
-	$ref->{$primaryKey}->{mac}->{src}  = uc($eth_obj->{src_mac});
-	$ref->{$primaryKey}->{mac}->{dst}  = uc($eth_obj->{dest_mac});
+	$srcMac  = $eth_obj->{src_mac};
+	$dstMac = $eth_obj->{dest_mac};
+	$srcMac  = uc($srcMac);
+	$dstMac = uc($dstMac);
+	$l2type  = $eth_obj->{type};
+	$ref->{$primaryKey}->{mac}->{src}  = $srcMac;
+	$ref->{$primaryKey}->{mac}->{dst}  = $dstMac;
 
-	# Populate OUI data for mac addresses.
-	my $srcV = substr($ref->{$primaryKey}->{mac}->{src}, 0, 6);
-	my $dstV = substr($ref->{$primaryKey}->{mac}->{dst}, 0, 6);
+	my $srcV = substr($srcMac, 0, 6);
+	my $dstV = substr($dstMac, 0, 6);
 	if (exists($oui{$srcV})) {
 		$srcV = $oui{$srcV};
 	} else {
@@ -395,11 +425,10 @@ sub packetParse {
 	$ref->{$primaryKey}->{mac}->{src_vendor} = $srcV;
 	$ref->{$primaryKey}->{mac}->{dst_vendor} = $dstV;
 
-	# Layer 3 
-	my $ip = NetPacket::IP->decode($ether);
+	$ip = NetPacket::IP->decode($ether);
 
-	# IPv4
 	if ($ip->{ver} == 4) {
+		
 		$ref->{$primaryKey}->{protos}->{l3} = "ip";
 
 		if (defined($ip->{proto})) {
@@ -420,21 +449,20 @@ sub packetParse {
 		$ref->{$primaryKey}->{ip}->{ver} 	= $ip->{ver};
 		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip}->{dst};
 
-		# IPv4 type       
+		# IPv4 Assignment Tagging       
                 if ($ref->{$primaryKey}->{ip}->{dst} =~ /^255\.255\.255\.255/) {
-			$ref->{$primaryKey}->{ip}->{type} = 'broadcast';
-                } elsif ($ref->{$primaryKey}->{ip}->{dst} =~ /^22[4-9]\.|^23[0-9]\./ ) {
-			$ref->{$primaryKey}->{ip}->{type} = 'multicast';
-                } else {
-			$ref->{$primaryKey}->{ip}->{type} = 'unicast';
-		}
+                        addTag($primaryKey, 'BROADCAST');
+                } elsif ($ref->{$primaryKey}->{ip}->{dst} =~ /^22[3-9]\.|^23[0-9]\./ ) {
+                        addTag($primaryKey, 'MULTICAST');
+                }
 	}
 
-	# IPv6
+
 	if ($ip->{ver} == 6) {
+
 		$ref->{$primaryKey}->{protos}->{l3} = "ipv6";
 
-  		my $ip6 = NetPacket::IPv6->decode($ether);
+  		$ip6 = NetPacket::IPv6->decode($ether);
 
 		if (defined($ip6->{proto})) {
         		$ipProto = getprotobynumber($ip6->{proto});
@@ -451,23 +479,23 @@ sub packetParse {
 		
 		$ipAddressForBeanCounter = $ref->{$primaryKey}->{ip}->{dst};
 
-		# IPv6 type
                 if ($ref->{$primaryKey}->{ip}->{dst} =~ /^ff[0-9a-f][0-9a-f]:/ ) {
-			$ref->{$primaryKey}->{ip}->{type} = 'multicast';
+                        addTag($primaryKey, 'MULTICAST');
                 }
 	}
 	
-	# Collect packet count for each IP seen.
+	# Only collect N samples perl destination IP;
 	$beanCounter->{$ipAddressForBeanCounter}++;
 
-	# TCP
+
+	
         if ($ipProto eq "tcp") {
-        	my $tcp = NetPacket::TCP->decode($ip->{data});
+        	$tcp = NetPacket::TCP->decode($ip->{data});
 
 		$ref->{$primaryKey}->{protos}->{l4} = "tcp";
 		$payloadData = $tcp->{data};
 
-		# TCP flag inspectione
+		# TCP flag inspection module
 		$ref->{$primaryKey}->{tcp}->{flag}->{FIN} = "false";
 		$ref->{$primaryKey}->{tcp}->{flag}->{SYN} = "false";
 		$ref->{$primaryKey}->{tcp}->{flag}->{RST} = "false";
@@ -479,7 +507,6 @@ sub packetParse {
 		$ref->{$primaryKey}->{tcp}->{flag}->{NS}  = "false";
 
         	my @tmp = getFlags($tcp->{flags});
-		my $tcpFlag;
 		foreach (@tmp) {
 			$ref->{$primaryKey}->{tcp}->{flag}->{$_} = "true";
 			$tcpFlag .= "$_:";	
@@ -498,25 +525,29 @@ sub packetParse {
 		$ref->{$primaryKey}->{tcp}->{urg}		= $tcp->{urg};
 		#$ref->{$primaryKey}->{tcp}->{options}		= $tcp->{options};
 
-		if (defined($payloadBytes)) {
+		if ($payload == 1) {
 			if ($payloadData) {
-				$ref->{$primaryKey}->{tcp}->{data} = toAscii($payloadData);
+				$ref->{$primaryKey}->{tcp}->{data} = getClean($payloadData);
 				# Add hex payload for pattern matching.
 				#my $hex = uc(unpack("H*", $tcp->{data}));
 			}
 		}
 
-		# Layer 7 
-		if (defined($l7Enable)) {
+		# L7 inspection modules
+		if ($l7Enable == 1) {
+			# BGP traffic
+			if ($payloadData =~ /^\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff..?\x01[\x03\x04]/) {
+				$ref->{$primaryKey}->{protos}->{l7} = "bgp";
+                        }
+
 			# SSH Straffic
                         if ($ref->{$primaryKey}->{tcp}->{dstport} == 22 || $ref->{$primaryKey}->{tcp}->{srcport} == 22 || $payloadData =~ /^ssh-[12]\.[0-9]/i) {
 				$ref->{$primaryKey}->{protos}->{l7} = "ssh";
                         }
 
 		}
-	# UDP
         } elsif ($ipProto eq "udp") {
-        	my $udp = NetPacket::UDP->decode($ip->{data});
+        	$udp = NetPacket::UDP->decode($ip->{data});
 
 		$ref->{$primaryKey}->{protos}->{l4} = "udp";
 		$payloadData = $udp->{data};
@@ -525,32 +556,29 @@ sub packetParse {
 		$ref->{$primaryKey}->{udp}->{srcport}	= $udp->{src_port};
 		$ref->{$primaryKey}->{udp}->{len}	= $udp->{len};
 
-		if (defined($payloadBytes)) {
+		if ($payload == 1) {
 			if ($payloadData) {
-				$ref->{$primaryKey}->{udp}->{data} = toAscii($payloadData);
+				$ref->{$primaryKey}->{udp}->{data} = getClean($payloadData);
 			}
 		}
+		# DNS Traffic
+		if ($ref->{$primaryKey}->{udp}->{dstport} == 53 || $ref->{$primaryKey}->{udp}->{srcport} == 53) {
+			$ref->{$primaryKey}->{protos}->{l7} = "dns";
+                }
 
-		# Layer 7
-		if (defined($l7Enable)) {
-			# DNS Traffic
-			if ($ref->{$primaryKey}->{udp}->{dstport} == 53 || $ref->{$primaryKey}->{udp}->{srcport} == 53) {
-				$ref->{$primaryKey}->{protos}->{l7} = "dns";
-                	}
+		# mDNS Traffic
+		if ($ref->{$primaryKey}->{udp}->{dstport} == 5353 || $ref->{$primaryKey}->{udp}->{srcport} == 5353) {
+			$ref->{$primaryKey}->{protos}->{l7} = "mdns";
+                }
 
-			# mDNS Traffic
-			if ($ref->{$primaryKey}->{udp}->{dstport} == 5353 || $ref->{$primaryKey}->{udp}->{srcport} == 5353) {
-				$ref->{$primaryKey}->{protos}->{l7} = "mdns";
-                	}
 
-			# NTP Traffic
-			if (($ref->{$primaryKey}->{udp}->{dstport} == 123 || $ref->{$primaryKey}->{udp}->{srcport} == 123) && $payloadData =~ /^([\x13\x1b\x23\xd3\xdb\xe3]|[\x14\x1c$].......?.?.?.?.?.?.?.?.?[\xc6-\xff])/) {
-				$ref->{$primaryKey}->{protos}->{l7} = "ntp";
-			}
+		# NTP Traffic
+		if (($ref->{$primaryKey}->{udp}->{dstport} == 123 || $ref->{$primaryKey}->{udp}->{srcport} == 123) && $payloadData =~ /^([\x13\x1b\x23\xd3\xdb\xe3]|[\x14\x1c$].......?.?.?.?.?.?.?.?.?[\xc6-\xff])/) {
+			$ref->{$primaryKey}->{protos}->{l7} = "ntp";
 		}
-	# ICMP
+
         } elsif ($ipProto eq "icmp") {
-        	my $icmp = NetPacket::ICMP->decode($ip->{data});
+        	$icmp = NetPacket::ICMP->decode($ip->{data});
 
 		$ref->{$primaryKey}->{protos}->{l3} = "icmp";
 		$payloadData = $icmp->{data};
@@ -558,14 +586,14 @@ sub packetParse {
 		$ref->{$primaryKey}->{icmp}->{type} = $icmp->{type};
 		$ref->{$primaryKey}->{icmp}->{code} = $icmp->{code};
 
-		if (defined($payloadBytes)) {
+		if ($payload == 1) {
 			if ($payloadData) {
-				$ref->{$primaryKey}->{icmp}->{data} = toAscii($payloadData);
+				$ref->{$primaryKey}->{icmp}->{data} = getClean($payloadData);
 			}
 		}
-	# ICMPv6
+		
 	} elsif ($ipProto eq "ipv6-icmp") {
-		my $icmpV6 = NetPacket::ICMPv6->decode(ipv6_strip(eth_strip($packet)));
+		$icmpV6 = NetPacket::ICMPv6->decode(ipv6_strip(eth_strip($packet)));
 
 		$ref->{$primaryKey}->{protos}->{l3} = "ipv6-icmp";
 		$payloadData = $icmpV6->{data};
@@ -574,14 +602,14 @@ sub packetParse {
 		$ref->{$primaryKey}->{ipv6_icmp}->{code} = $icmpV6->{code};
 		$ref->{$primaryKey}->{ipv6_icmp}->{cksum} = $icmpV6->{cksum};
 
-		if (defined($payloadBytes)) {
+		if ($payload == 1) {
 			if ($payloadData) {
-				$ref->{$primaryKey}->{ipv6_icmp}->{data} = toAscii($payloadData);
+				$ref->{$primaryKey}->{ipv6_icmp}->{data} = getClean($payloadData);
 			}
 		}
-	# IGMP
+
 	} elsif ($ipProto eq "igmp") {
-        	my $igmp = NetPacket::IGMP->decode($ip->{data});
+        	$igmp = NetPacket::IGMP->decode($ip->{data});
 
 		$ref->{$primaryKey}->{protos}->{l3} = "igmp";
 		$payloadData = $igmp->{data};
@@ -593,26 +621,25 @@ sub packetParse {
 		$ref->{$primaryKey}->{igmp}->{group_addr}	= $igmp->{group_addr};
 		$ref->{$primaryKey}->{igmp}->{cksum}		= $igmp->{cksum};
 
-		if (defined($payloadBytes)) {
+		if ($payload == 1) {
 			if ($payloadData) {
-				$ref->{$primaryKey}->{igmp}->{data} = toAscii($payloadData);
+				$ref->{$primaryKey}->{igmp}->{data} = getClean($payloadData);
 			}
 		}
 	}
 
-	# Layer 7
-	if (defined($l7Enable)) {
+	if ($l7Enable == 1) {
 		if ($ipProto =~ /^tcp$|^udp$/ && defined($payloadData)) {
 			# SSL Traffic
                         if ($payloadData =~ /^(.?.?\x16\x03.*\x16\x03|.?.?\x01\x03\x01?.*\x0b)|(3t.?.?.?.?.?.?.?.?.?.?h2.?http\/1\.1.?.?)/) {
 				$ref->{$primaryKey}->{protos}->{l7} = "ssl";
                         }
 
-			# HTTP Headers Pattern 
-			my $httpHeaders = qr/^Accept|^Access-|^Age|^Allow|^Alt-Svc|^Authorization|^Cache-Control|^Clear-Site-Data|^Connection|^Content-|^Cookie|^Cross-|^Date|^Device-Memory|^Digest|^DNT|^Downlink|^DPR|^Early-Data|^ECT|^ETag|^Expect|^Expires|^Feature-Policy|^Forwarded|^From|^Host|^If-|^Keep-Alive|^Large-Allocation|^Last-Modified|^Link|^Location|^Max-Forwards|^NEL|^Origin|^Pragma|^Proxy-|^Range|^Referer|^Referrer-Policy|^Retry-After|^RTT|^Save-Data|^Sec-|^Server|^Service-Worker-Navigation-Preload|^Set-Cookie|^SourceMap|^Strict-Transport-Security|^TE|^Timing-Allow-Origin|^Tk|^Trailer|^Transfer-Encoding|^Upgrade|^User-Agent|^Vary|^Via|^Viewport-Width|^Want-Digest|^Warning|^Width|^WWW-Authenticate|^X-/; 	
+			# HTTP Headers Patterns
+			my $httpPatterns = qr/^Accept|^Access-|^Age|^Allow|^Alt-Svc|^Authorization|^Cache-Control|^Clear-Site-Data|^Connection|^Content-|^Cookie|^Cross-|^Date|^Device-Memory|^Digest|^DNT|^Downlink|^DPR|^Early-Data|^ECT|^ETag|^Expect|^Expires|^Feature-Policy|^Forwarded|^From|^Host|^If-|^Keep-Alive|^Large-Allocation|^Last-Modified|^Link|^Location|^Max-Forwards|^NEL|^Origin|^Pragma|^Proxy-|^Range|^Referer|^Referrer-Policy|^Retry-After|^RTT|^Save-Data|^Sec-|^Server|^Service-Worker-Navigation-Preload|^Set-Cookie|^SourceMap|^Strict-Transport-Security|^TE|^Timing-Allow-Origin|^Tk|^Trailer|^Transfer-Encoding|^Upgrade|^User-Agent|^Vary|^Via|^Viewport-Width|^Want-Digest|^Warning|^Width|^WWW-Authenticate|^X-/; 	
 
 			# HTTP Request	
-			if ($payloadData =~ /^GET|^POST|^HEAD|^PUT|^DELETE|^TRACE|^CONNECT|^OPTIONS|^PATCH/i) {
+			if ($payloadData =~ /^GET |^POST |^HEAD |^PUT |^DELETE |^TRACE |^CONNECT |^OPTIONS |^PATCH /i) {
 				my @lines = split("\n", $payloadData);
 				my $methUri = shift(@lines);
 				my @methodData = split(" ", $methUri);
@@ -622,26 +649,23 @@ sub packetParse {
 				$ref->{$primaryKey}->{http}->{request}->{uri} = $methodData[1];
 				$ref->{$primaryKey}->{http}->{request}->{version} = $methodData[2];
 
+				#$ref->{$primaryKey}->{count}->{http}->{request}->{uri}->{$methodData[1]}++;
 				foreach (@lines) {
-
 					if ($_ !~ /:/) {
 						next;
 					}
-
 					my ($header,$headerContent) = split(/: /, $_);
-					if ($header !~ /$httpHeaders/i) {
-						next;
-					}
-				
+					if ($header !~ /$httpPatterns/i) { next; }				
 					if ($header =~ /\r/) {
 						next;
 					}
-
 					$header = lc($header);
+					$header = "$header";
 					$headerContent =~ s/^ //;
 					$headerContent =~ s/\s+\r$|\r$//;
 
 					$ref->{$primaryKey}->{http}->{request}->{header}->{$header} = $headerContent;
+
 				}
 			}
 			# HTTP Response
@@ -656,21 +680,19 @@ sub packetParse {
 				$ref->{$primaryKey}->{http}->{response}->{status} = $resStatus;
 
 				foreach (@lines) {
-
-					if ($_ !~ /:/) {
+					my $line = $_;
+					if ($line !~ /:/) {
 						next;
 					}
 
-					my ($header,$headerContent) = split(/: /, $_);
-					if ($header !~ /$httpHeaders/i) {
-						next;
-					}
-
+					my ($header,$headerContent) = split(/: /, $line);
+					if ($header !~ /$httpPatterns/i) { next; }				
 					$header = lc($header);
 					$headerContent =~ s/^ //;
 					$headerContent =~ s/\s+\r$|\r$//;
 
 					$ref->{$primaryKey}->{http}->{response}->{header}->{$header} = $headerContent;
+
 				}
 			}
 		}
@@ -678,6 +700,9 @@ sub packetParse {
 
 	return;	
 }
+
+logIt("stopped. $pktCounter packets processed.");
+
 
 #####################################
 # Tag our data in the index 
@@ -697,18 +722,18 @@ sub addTag {
 #####################################
 # Clean up payload data for human consumption 
 #####################################
-sub toAscii {
-	my $pktData = shift;
-	if (defined($payloadBytes)) {
-		$pktData =~ s/\n|\r|\x0D/\./g;
-		$pktData =~ s/[^[:ascii:]]|[^[:print:]]/\./g;
-		#$pktData =~ s/[^ -~]/\./g;
-		$pktData = substr($pktData, 0, $payloadBytes);
+sub getClean {
+	my $mess = shift;
+	if ($payload == 1) {
+		$mess =~ s/\n|\r|\x0D/\./g;
+		$mess =~ s/[^[:ascii:]]|[^[:print:]]/\./g;
+		#$mess =~ s/[^ -~]/\./g;
+		$mess = substr($mess, 0, $plBits);
 	} else {
-		$pktData = "";
+		$mess = "";
 	}
 
-	return($pktData);
+	return($mess);
 }
 
 #####################################
@@ -742,6 +767,54 @@ sub getFlags {
 }
 
 #####################################
+# Load pat files for l7 protocol idetification
+#####################################
+
+sub getPats {
+	my $line;
+	my $switch;
+	my $name;
+	my $value;
+	my @patterns;
+	my $patFiles = '/etc/l7-protocols/protocols/*.pat';
+	while (<$patFiles>) {
+		$switch = 0;
+		open(my $FH, '<', $_) or warn "Can't open '$_': $!\n";
+		@patterns = <$FH>;
+		close($FH);
+		foreach (@patterns) {
+			$line = $_;
+			chomp($line);
+			if ($line =~ /^#|^\n$|^$/) {
+				next;
+			} elsif ($switch == 0) {
+				$name = $line;
+				$switch = 1;
+			} elsif ($switch == 1) {
+				$value = $line;
+				$switch = 0;
+			}
+		}
+		$patterns{$name} = $value;
+	}
+
+	#if ($l7Enable == 1) {
+	#	my $pattern;
+	#	foreach (keys(%patterns)) {
+	#		$pattern = qr/$patterns{$_}/;
+	#		if ($_ =~ /unknown|unset/) {
+	#			next;
+	#		}
+	#		if ($ref->{$primaryKey}->{raw}->{data} =~ /$pattern/) {
+	#			$ref->{$primaryKey}->{l7}->{proto} = $_;
+	#		}
+	#	}
+	#}
+
+	return;
+}
+
+#####################################
 # log the message given 
 #####################################
 sub logIt {
@@ -766,6 +839,37 @@ sub debugIt {
 }
 
 #####################################
+# help output 
+#####################################
+sub help {
+	print "$0\n";
+	print "\t-c\tNumber of packets to process. Only works when interface is defined.\n";
+	print "\t-d\tOutput debug information to STDOUT.\n";
+	print "\t-g\tEnable geoip collection.\n";
+	print "\t-h\tThis help output.\n";
+	print "\t-i\tInterface to listen to.\n";
+	print "\t-j\tOutput JSON to STDOUT for each packet.\n";
+	print "\t-l\tEnable syslog logging.\n";
+	print "\t-p\tPath to pcap file for reading.\n";
+	print "\t-r\tEnable reverse DNS lookup. (much slower)\n";
+	print "\t-s\tElastic search server address with port. eg: 192.168.1.10:9200\n";
+	print "\t-t\tLabel name for your datasource.\n";
+	print "\n";
+	print "Examples:\n";
+	print "\tListen to eth0 for 10 packets and output JSON.\n";
+	print "\t$0 -i eth0 -c 10 -j\n";
+	print "\n";
+	print "\tRead from pcap file and output JSON.\n";
+	print "\t$0 -p /path/to/pcap -j\n";
+	print "\n";
+	print "\tListen to eth0 for 1000 packets and inject data to elasticsearch.\n";
+	print "\t$0 -i eth0 -c 1000 -s 192.168.0.10:9200\n";
+	print "\n";
+	
+	exit;
+}
+
+#####################################
 # Reverse DNS recorder
 #####################################
 
@@ -781,46 +885,4 @@ sub revDns {
 		}
 	}
 }
-
-#####################################
-# help output 
-#####################################
-sub help {
-	my $helpOutput = <<menuEnd;
-$0
-	-c	Number of packets to process.
-	-b	Number of bytes to collect from the payload. Default: none
-	-d	Output debug information to STDOUT.
-	-g	Enable geoip collection.
-	-h	This help output.
-	-i	Interface to listen to.
-	-j	Output JSON array to STDOUT.
-	-l	Enable syslog logging.
-	--l7	Enable layer 7 data collection.
-	-p	Path to pcap file for reading.
-	-r	Enable reverse DNS lookup. (much slower)
-	-s	Elastic search server address with port. eg: 192.168.1.10:9200
-	-t	Label name for your datasource.
-
-Examples:
-	Listen to eth0 for 10 packets, output JSON, enable L7, process GeoIP.
-
-	$0 -i eth0 -c 10 -j --l7 -g
-
-	Read from pcap file and output JSON.
-
-	$0 -p /path/to/pcap -j
-
-	Listen to eth0 for 1000 packets ,inject to elasticsearch, capture
-	1024 bytes of payload, process layer7 data.
-
-	$0 -i eth0 -c 1000 -s 192.168.0.10:9200 -b 1024 --l7
-
-menuEnd
-
-	print "$helpOutput\n\n";
-
-	exit;
-}
-
 

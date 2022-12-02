@@ -6,7 +6,7 @@ if (empty($_FILES['upload'])) {
 
 	<head>
 		<meta charset="utf-8"/>
-		<title>Drag and Drop PCAP Injector</title>
+		<title>PCAP Upload</title>
 
 		<!-- Google web fonts -->
 		<link href="http://fonts.googleapis.com/css?family=PT+Sans+Narrow:400,700" rel="stylesheet" />
@@ -42,16 +42,15 @@ if (empty($_FILES['upload'])) {
         }
 
         chdir('../bin');
-        if ($output = shell_exec('./optimus.pl -g -j -p '.$_FILES['upload']['tmp_name'])) {
+        if ($output = shell_exec('./optimus.pl -b 1024 --l7 -g -j -p '.$_FILES['upload']['tmp_name'])) {
                 echo $output;
                 exit;
         } else {
                 echo '{"status":"error"}';
-                echo "ERROR";
                 exit;
         }
 
         # upload pcap files using curl
-        # curl -F 'upload=@/path/to/pcap' http://localhost/optimus/test.php
+        # curl -F 'upload=@/path/to/pcap' http://localhost:8000
 }
 ?>

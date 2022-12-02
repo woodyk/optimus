@@ -4,7 +4,6 @@ requires 'JSON';
 requires 'POSIX';
 requires 'Socket';
 requires 'Net::Pcap';
-requires 'Config::Tiny';
 requires 'UUID::Tiny';
 requires 'Data::Dumper';
 requires 'Sys::Hostname';
