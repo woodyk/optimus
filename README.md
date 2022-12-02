@@ -63,12 +63,18 @@ docker run -d --restart always -p 8000:8000 --net=host -e OPTIMUS_ARGS='-i eth1 
 
 ### Web API 
 #### Web Server
-First you must configure a webserver that supports php.  The DOCUMENT_ROOT should be the web directory.
-For a quick setup you can use the php built-in webserver to serve the API.
+First you must configure a webserver that supports php.  The DOCUMENT_ROOT should be the web directory. For a quick setup you can use the php built-in webserver to serve the API.
 ```
 cd optimus/web
 php -S 0.0.0.0:8000
 ```
+If you are using the docker deployment, it includes preconfigured apache and php exposed on ports 8000 and 4430.
+
+You can deploy and API only docker container using the following.
+```
+docker run -d --rm -p 8000:8000 -p 4430:4430 -e OPTIMUS_ARGS='--dummy' --name=optimus_api optimus
+```
+
 #### Using the API
 There are two ways the web api can be used.
 
