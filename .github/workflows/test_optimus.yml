@@ -39,5 +39,5 @@ jobs:
       - name: Test Optimus API
         run: |
           cd /home/runner/work/optimus/optimus/lib/examples
-          curl -F 'upload=@test.pcap' http://localhost:8000
+          curl -F 'upload=@./test.pcap' http://localhost:8000
 
