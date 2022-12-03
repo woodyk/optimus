@@ -6,7 +6,7 @@ on:
       - "main"
 
 jobs:
-  build:
+  test:
 
     runs-on: ubuntu-latest
 
@@ -14,10 +14,15 @@ jobs:
       - name: Check Out Main
       - uses: actions/checkout@v3
 
-      - run: apt-get update
-      - run: DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install tzdata -y
-      - run: apt-get install gzip wget cpanminus make gcc libpcap-dev net-tools curl tcpdump -y
-      - run: apt-get install libjson-perl libnet-pcap-perl libdata-dmp-perl libsys-hostname-long-perl libgetopt-long-descriptive-perl libuuid-tiny-perl libmaxmind-db-reader-perl libnet-ipaddress-perl libnetpacket-perl libuuid-tiny-perl libmaxmind-db-reader-perl php
-      - run: cpanm -f -n Search::Elasticsearch
-      - run: cd optimus
-      - run: perl -wc bin/optimus.pl
+      - name: Install Dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install tzdata -y
+          apt-get install gzip wget cpanminus make gcc libpcap-dev net-tools curl tcpdump -y
+          apt-get install libjson-perl libnet-pcap-perl libdata-dmp-perl libsys-hostname-long-perl libgetopt-long-descriptive-perl libuuid-tiny-perl libmaxmind-db-reader-perl libnet-ipaddress-perl libnetpacket-perl libuuid-tiny-perl libmaxmind-db-reader-perl php
+          cpanm -f -n Search::Elasticsearch
+
+      - name: Test Optimus
+        run: |
+          cd optimus
+          perl -wc bin/optimus.pl
