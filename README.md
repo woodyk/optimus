@@ -114,7 +114,7 @@ cd bin
 ./optimus.pl -i eth0 -c 1000 --server 192.168.0.10:9200 --bytes 1024 --l7
 ```
 
-If you wish to collect samples continuously modify the script run.sh and add the necessary command line switches to the script.  The execute.
+If you wish to collect samples continuously modify the script run.sh and add the necessary command line switches to the script.  Then execute.
 ```
 ./run.sh &
 ```
@@ -159,7 +159,7 @@ docker run -d --rm -p 8000:8000 -p 4430:4430 -e OPTIMUS_ARGS='--dummy' --name=op
 ### Using the API
 There are two ways the web API can be used.
 
-1. User your browser to navigate to your server and upload pcaps manually. eg: http://localhost:8000
+1. Use your browser to navigate to your server and upload pcaps manually. eg: http://localhost:8000
 2. Automate tasks by using HTTP POST to upload your pcap.
 ```
 curl -F 'upload=@/path/to/pcap' http://localhost:8000
