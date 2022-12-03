@@ -26,4 +26,4 @@ jobs:
           ifconfig -a
           cd /home/runner/work/optimus/optimus/bin
           perl -wc ./optimus.pl
-          sudo ./optimus.pl -p -c 100 --bytes 1024 -g --l7 -j 
+          sudo ./optimus.pl -p ../lib/test.pcap -c 100 --bytes 1024 -g --l7 -j 
