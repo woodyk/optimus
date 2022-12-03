@@ -27,6 +27,11 @@ jobs:
           perl -wc ./optimus.pl
           sudo ./optimus.pl -p ../lib/examples/test.pcap -c 100 --bytes 1024 -g --l7 -j 
 
+      - name: Find php.ini
+        run: |
+          cd /etc
+          sudo find ./ -name php.ini
+
       - name: Test Optimus API
         run: |
           cd /home/runner/work/optimus/optimus
