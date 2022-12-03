@@ -21,6 +21,14 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install tzdata -y
           sudo apt-get install gzip wget cpanminus make curl gcc libpcap-dev net-tools libjson-perl libnet-pcap-perl libdata-dmp-perl libsys-hostname-long-perl libgetopt-long-descriptive-perl libuuid-tiny-perl libmaxmind-db-reader-perl libnet-ipaddress-perl libnetpacket-perl libuuid-tiny-perl libmaxmind-db-reader-perl libsearch-elasticsearch-perl php apache2 libapache2-mod-php
 
+      - name: Test Apache Configuration 
+        run: |
+          cd /home/runner/work/optimus/optimus
+          sudo ln -s /home/runner/work/optimus/optimus /optimus
+          sudo cp etc/apache2.conf /etc/apache2/apache2.conf
+          sudo cp etc/php.ini /etc/php/8.1/apache2/php.ini
+          sudo /etc/init.d/apache2 start
+
       - name: Test Optimus Execution
         run: |
           cd /home/runner/work/optimus/optimus/bin
@@ -28,10 +36,6 @@ jobs:
           sudo ./optimus.pl -p ../lib/examples/test.pcap -c 100 --bytes 1024 -g --l7 -j 
 
       - name: Test Optimus API
-        run: |
-          cd /home/runner/work/optimus/optimus
-          sudo ln -s /home/runner/work/optimus/optimus /optimus
-          sudo cp etc/apache2.conf /etc/apache2/apache2.conf
-          sudo cp etc/php.ini /etc/php/8.1/apache2/php.ini
-          sudo /etc/init.d/apache2 start
-          curl -F 'upload=@lib/examples/test.pcap' http://localhost:8000
+          cd /home/runner/work/optimus/optimus/web
+          php -S localhost:8888
+          curl -F 'upload=@../lib/examples/test.pcap' http://localhost:8888
