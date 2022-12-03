@@ -80,15 +80,14 @@ It should return the folowing. If not please ensure that all the modules contain
 bin/optimus.pl syntax OK
 ```
 
-#### Preparing ElasticSearch
+#### Preparing Elasticsearch
 
 Run the following command.
 ```
 bin/elasticsearch_setup.sh <ES_IP_ADDRESS>:<PORT>
 ```
 
-The following should be returned from your ElasticSearch node.
-
+The following should be returned from your Elasticsearch node.
 ```
 Creating GeoIP pipeline.
 {
@@ -104,10 +103,12 @@ Creating index template mapping.
 }
 ```
 
-#### Running Optimus
+---
 
+## Running Optimus
+
+### Command Line
 Optimus can be run with a few different options.  The following example would be very common. This will run once on interface eth0 for 1000 packets, injecting to Elasticsearch node 192.168.0.10:9200, saving 1024 bytes of the payload, and processing layer 7 information such as protocol and HTTP headers.
-
 ```
 cd bin
 ./optimus.pl -i eth0 -c 1000 --server 192.168.0.10:9200 --bytes 1024 --l7
@@ -117,8 +118,6 @@ If you wish to collect samples continuously modify the script run.sh and add the
 ```
 ./run.sh &
 ```
-
----
 
 ### Docker
 #### Prepare Docker Image
