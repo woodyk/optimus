@@ -25,5 +25,5 @@ jobs:
 
       - name: Test Optimus
         run: |
-          cd optimus
+          cd /home/runner/work/optimus/optimus
           perl -wc bin/optimus.pl
