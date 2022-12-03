@@ -36,6 +36,7 @@ jobs:
           sudo ./optimus.pl -p ../lib/examples/test.pcap -c 100 --bytes 1024 -g --l7 -j 
 
       - name: Test Optimus API
+        run: |
           cd /home/runner/work/optimus/optimus/web
           php -S localhost:8888
           curl -F 'upload=@../lib/examples/test.pcap' http://localhost:8888
