@@ -8,7 +8,7 @@
 
 Optimus is a simple network packet indexer for Elasticsearch.
 
-Tools such as tshark proved to be more than I needed.  Optimus simplifies the task of indexing the most used protocols into Elasticsearch.  Capable of live network sampling or importing of pcaps.  Optimus can have you quickly indexing, and searching your network information with tools such as Kibana.  Optimus is not meant for 100% continuous network packet collection.  Instead, the idea is to gather enough packets to enable quick, easy, and accurate research of your traffic.
+Tools such as tshark proved to be more than I needed.  Optimus simplifies the task of indexing the most used protocols into Elasticsearch.  Capable of live network sampling or importing of pcaps.  Optimus can have you quickly indexing, and searching your network information with tools such as Kibana or Grafana.  Optimus is not meant for 100% continuous network packet collection.  Instead, the idea is to gather enough packets to enable quick, easy, and accurate research of your traffic.
 
 ---
 
@@ -22,7 +22,7 @@ Tools such as tshark proved to be more than I needed.  Optimus simplifies the ta
 
 ### Overview
 - Indexes network traffic to Elasticsearch.
-- Data ready for tools such as Kibana.
+- Visualize your data with tools such as Kibana or Grafana.
 - Enriches your traffic data with reverse DNS, HTTP headers, GeoIP, and MAC vendor details.
 - Capable of live traffic sampling or importing of pcaps.
 - Simple web API for processing pcap data.  Only supports JSON output at the moment.
@@ -137,6 +137,9 @@ docker pull ghcr.io/woodyk/optimus
 
 #### Docker Run 
 Run your continer as follows.  Populate the "OPTIMUS_ARGS" environment variable with the necessary arguments. Please see "Optimus Commandline Options" for more information.  This will run optimus continously, collecting 5000 packets at a time and injecting them into your Elasticsearch node. 
+
+> **Note** If you wish to listen to a parent interface this will only work on Linux.  The --net=host functionality does not provide access to the physical interfaces of Windows or MacOs.
+
 ```
 docker run -d --rm -p 8000:8000 -p 4430:4430 --net=host -e OPTIMUS_ARGS='-i eth1 -c 5000 --server 192.168.0.10:9200 --bytes 1024 --l7' --name=optimus_eth1 optimus
 ```
