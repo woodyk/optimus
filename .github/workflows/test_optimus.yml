@@ -23,5 +23,7 @@ jobs:
 
       - name: Test Optimus
         run: |
+          ifconfig -a
           cd /home/runner/work/optimus/optimus
           perl -wc bin/optimus.pl
+          sudo ./optimus.pl -i eth0 -c 10 -j 
