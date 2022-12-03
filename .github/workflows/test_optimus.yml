@@ -33,4 +33,3 @@ jobs:
           php -S 127.0.0.1:8000 &
           sleep 5
           curl -F 'upload=@../lib/examples/test.pcap' http://localhost:8000
-          killall php
