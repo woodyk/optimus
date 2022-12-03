@@ -121,13 +121,19 @@ If you wish to collect samples continuously modify the script run.sh and add the
 ---
 
 ### Docker
-#### Build Docker Image
+#### Prepare Docker Image
 
+You can build the image yourself using the following.
 ```
 docker build -t optimus .
 ```
 
-#### Run
+Or you can pull the latest docker image from git packages.
+```
+docker pull ghcr.io/woodyk/optimus
+```
+
+#### Docker Run 
 Run your continer as follows.  Populate the "OPTIMUS_ARGS" environment variable with the necessary arguments. Please see "Optimus Commandline Options" for more information.  This will run optimus continously, collecting 5000 packets at a time and injecting them into your Elasticsearch node. 
 ```
 docker run -d --rm -p 8000:8000 -p 4430:4430 --net=host -e OPTIMUS_ARGS='-i eth1 -c 5000 --server 192.168.0.10:9200 --bytes 1024 --l7' --name=optimus_eth1 optimus
