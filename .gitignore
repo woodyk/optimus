@@ -156,3 +156,6 @@ cython_debug/
 
 # Other
 lib/wireshark_oui.txt
+.VolumeIcon.icns
+.ql_disablecache
+.ql_disablethumbnails
