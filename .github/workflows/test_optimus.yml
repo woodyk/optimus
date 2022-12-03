@@ -24,6 +24,7 @@ jobs:
       - name: Test Optimus
         run: |
           ifconfig -a
+          ping 1.1.1.1 &
           cd /home/runner/work/optimus/optimus/bin
           perl -wc ./optimus.pl
           sudo ./optimus.pl -i eth0 -c 10 -j 
