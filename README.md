@@ -1,4 +1,7 @@
-# Optimus
+<p align="center"><img src="https://raw.githubusercontent.com/woodyk/optimus/main/web/assets/img/optimus-banner.png" alt="Optimus Banner"></p>
+
+---
+
 ![Built With PERL](https://img.shields.io/badge/built%20with-PERL-blue) ![Built With Docker](https://img.shields.io/badge/built%20with-Docker-blue) ![Built With Elasticsearch](https://img.shields.io/badge/built%20with-Elasticsearch-green) ![Built With Kibana](https://img.shields.io/badge/built%20with-Kibana-ff69b4) ![Built With BASH](https://img.shields.io/badge/built%20with-BASH-2d3b3e) ![Built With PHP](https://img.shields.io/badge/built%20with-PHP-7b86b9)
 
 ## About
