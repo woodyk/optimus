@@ -12,18 +12,24 @@ jobs:
     permissions: write-all
 
     steps:
-      - name: Check Out Main
+      - name: Check Out Optimus
         uses: actions/checkout@v3
 
       - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install tzdata -y
-          sudo apt-get install gzip wget cpanminus make gcc libpcap-dev net-tools libjson-perl libnet-pcap-perl libdata-dmp-perl libsys-hostname-long-perl libgetopt-long-descriptive-perl libuuid-tiny-perl libmaxmind-db-reader-perl libnet-ipaddress-perl libnetpacket-perl libuuid-tiny-perl libmaxmind-db-reader-perl libsearch-elasticsearch-perl php
+          sudo apt-get install gzip wget cpanminus make curl gcc libpcap-dev net-tools libjson-perl libnet-pcap-perl libdata-dmp-perl libsys-hostname-long-perl libgetopt-long-descriptive-perl libuuid-tiny-perl libmaxmind-db-reader-perl libnet-ipaddress-perl libnetpacket-perl libuuid-tiny-perl libmaxmind-db-reader-perl libsearch-elasticsearch-perl php
 
-      - name: Test Optimus
+      - name: Test Optimus Execution
         run: |
-          ifconfig -a
           cd /home/runner/work/optimus/optimus/bin
           perl -wc ./optimus.pl
-          sudo ./optimus.pl -p ../lib/test.pcap -c 100 --bytes 1024 -g --l7 -j 
+          sudo ./optimus.pl -p ../lib/examples/test.pcap -c 100 --bytes 1024 -g --l7 -j 
+
+      - name: Test Optimus API
+        run: |
+          cd /home/runner/work/optimus/optimus/web
+          php -S 127.0.0.1:8000 &
+          curl -F 'upload=@../lib/examples/test.pcap' http://localhost:8000
+          killall php

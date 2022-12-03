@@ -3,7 +3,6 @@ if (empty($_FILES['upload'])) {
 	echo '
 <!DOCTYPE html>
 <html>
-
 	<head>
 		<meta charset="utf-8"/>
 		<title>PCAP Upload</title>
