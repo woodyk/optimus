@@ -44,14 +44,14 @@ jobs:
       - name: Test Elasticsearch Setup
         run: |
           cd /home/runner/work/optimus/optimus/bin
-          ./elasticsearch_setup.sh localhost 
+          ./elasticsearch_setup.sh localhost:9200 
 
       - name: Test Optimus Execution
         run: |
           cd /home/runner/work/optimus/optimus/bin
           perl -wc ./optimus.pl
           sudo ./optimus.pl -p ../lib/examples/test.pcap -c 25 --bytes 1024 -g --l7 -j 
-          sudo ./optimus.pl -p ../lib/examples/test.pcap -c 25 --bytes 1024 --l7 -d
+          sudo ./optimus.pl -p ../lib/examples/test.pcap -c 25 --bytes 1024 --server localhost:9200 --l7 --debug
 
       - name: Test Optimus API
         run: |

@@ -1,5 +1,5 @@
 echo "Creating GeoIP pipeline."
-curl -XPUT "$1:9200/_ingest/pipeline/optimus_geoip?pretty" -H 'Content-Type: application/json' -d'
+curl -XPUT "$1/_ingest/pipeline/optimus_geoip?pretty" -H 'Content-Type: application/json' -d'
 {
   "processors": [
     {
@@ -21,7 +21,7 @@ curl -XPUT "$1:9200/_ingest/pipeline/optimus_geoip?pretty" -H 'Content-Type: app
 '
 
 echo "Creating index lifecycle policy."
-curl -XPUT "$1:9200/_ilm/policy/optimus_policy?pretty" -H 'Content-Type: application/json' -d'
+curl -XPUT "$1/_ilm/policy/optimus_policy?pretty" -H 'Content-Type: application/json' -d'
 {
   "policy": {
     "phases": {
@@ -54,7 +54,7 @@ curl -XPUT "$1:9200/_ilm/policy/optimus_policy?pretty" -H 'Content-Type: applica
 '
 
 echo "Creating index template mapping."
-curl -XPUT "$1:9200/_index_template/optimus_template?pretty" -H 'Content-Type: application/json' -d'
+curl -XPUT "$1/_index_template/optimus_template?pretty" -H 'Content-Type: application/json' -d'
 {
   "template": {
     "settings": {
