@@ -40,7 +40,7 @@ jobs:
         run: |
           cd /opt
           sudo wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.5.2-linux-x86_64.tar.gz
-          sudo tar -zxvf elasticsearch-8.5.2-linux-x86_64.tar.gz
+          sudo tar -zxf elasticsearch-8.5.2-linux-x86_64.tar.gz
           sudo adduser --disabled-password --gecos "" elastic
           sudo chown -R elastic.elastic elasticsearch*
           cd /opt/elasticsearch-8.5.2
