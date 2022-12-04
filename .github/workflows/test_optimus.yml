@@ -44,7 +44,7 @@ jobs:
       - name: Test Elasticsearch Setup
         run: |
           cd /home/runner/work/optimus/optimus/bin
-          ./elasticsearch_setup.sh localhost:9200
+          ./elasticsearch_setup.sh localhost 
 
       - name: Test Optimus Execution
         run: |
