@@ -90,9 +90,8 @@ if (defined($dummy)) {
 if (defined($esNode)) {
 	if ($esNode !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}$/) {
        		$message = "error: IP address not valid.\n";
-       		print "$message";
        		logIt($message);
-       		exit;
+       		die $message;
 	}
 
 	if (defined($geoIp)) {
@@ -106,9 +105,8 @@ if (defined($esNode)) {
 # Sanity checks for interface switches.
 if (defined($interface) && !defined($sample)) {
 	$message = "No packet count has been defined. Use -c.\n";
-	print "$message";
 	logIt($message);
-	exit;
+	die $message;
 }
 
 #####################################
@@ -162,9 +160,8 @@ if (defined($pcapFile)) {
 	$interface = "pcap";
 	if (!-e $pcapFile) {
 		$message = "Unable to find file $pcapFile for processing.\n";
-		print "$message";
 		logIt($message);
-		exit;
+		die $message;
 	}
 
 	if (!defined($sample)) {
@@ -323,8 +320,9 @@ sub capture {
 	#$SIG{ALRM} = sub { Net::Pcap::close($pcap); sleep 1; display(); };
 
         if (!defined($pcap)) {
-                warn "Unable to capture traffic.\n$err\n";
-		exit;
+                $message = "Unable to capture traffic.\n$err\n";
+		logIt($message);
+		die $message;
         }
 
         Net::Pcap::compile($pcap, \$filter_compiled, $filter, 0, 0) && warn "Unable to create filter.\n";;

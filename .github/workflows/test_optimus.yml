@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Check Out Optimus
         uses: actions/checkout@v3
+      - run: |
+          sudo mv /home/runner/work/optimus/optimus /
 
       - name: Install Dependencies
         run: |
@@ -23,12 +25,14 @@ jobs:
 
       - name: Test Apache Configuration 
         run: |
-          cd /home/runner/work/optimus/optimus
-          sudo ln -s /home/runner/work/optimus/optimus /optimus
+          cd /optimus
           sudo cp etc/apache2.conf /etc/apache2/apache2.conf
           sudo cp etc/php.ini /etc/php/8.1/apache2/php.ini
           sudo /etc/init.d/apache2 start
-          sudo /etc/init.d/apache2 stop
+
+      - name: Test Optimus API
+        run: |
+          curl -F 'upload=@lib/examples/test.pcap' http://localhost:8000
 
       - name: Install and Run Elasticsearch
         run: |
@@ -41,31 +45,30 @@ jobs:
           sudo echo "xpack.security.enabled: false" >> config/elasticsearch.yml
           sudo su elastic -c "ES_PATH_CONF=/opt/elasticsearch-8.5.2/config bin/elasticsearch -d -p pid"
 
-      - name: Test Elasticsearch Setup
+      - name: Test Elasticsearch Configuration Setup
         run: |
-          cd /home/runner/work/optimus/optimus/bin
+          cd /optimus/bin
           ./elasticsearch_setup.sh localhost:9200 
 
       - name: Test Optimus Execution
         run: |
-          cd /home/runner/work/optimus/optimus/bin
-          perl -wc ./optimus.pl
           sudo ./optimus.pl -p ../lib/examples/test.pcap -c 25 --bytes 1024 -g --l7 -j 
           sudo ./optimus.pl -p ../lib/examples/test.pcap -c 25 --bytes 1024 --server 127.0.0.1:9200 --l7 --debug
 
       - name: Test Optimus API
         run: |
-          cd /home/runner/work/optimus/optimus/web
+          cd /optimus/web
           php -S localhost:8888 &
           sleep 5
           curl -F 'upload=@../lib/examples/test.pcap' http://localhost:8888
 
       - name: Test Docker Build
         run: |
-          cd /home/runner/work/optimus/optimus
+          cd /optimus
           docker build -t optimus .
 
       - name: Test Docker Image
         run: |
-          docker run -d --rm -p 8000:8000 -p 4430:4430 -e OPTIMUS_ARGS='--dummy' --name=optimus_api optimus
+          docker run -d --rm -p 8111:8000 -p 4431:4430 -e OPTIMUS_ARGS='--dummy' --name=optimus_api optimus
+          curl -v http://localhost:8111
 
