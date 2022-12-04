@@ -83,28 +83,19 @@ It should return the folowing. If not please ensure that all the modules contain
 bin/optimus.pl syntax OK
 ```
 
-#### Preparing Elasticsearch
+#### Preparing Elasticsearch and Kibana
 
-Run the following command.
+Prepare Elasticsearch for your data.
 ```
-bin/elasticsearch_setup.sh <ES_IP_ADDRESS>:<PORT>
+bin/elasticsearch_setup.sh <ELASTICSEARCH_HOST>:<PORT>
 ```
 
-The following should be returned from your Elasticsearch node.
+Optionaly you can setup Kibana with some pre-made visualizations.
 ```
-Creating GeoIP pipeline.
-{
-  "acknowledged" : true
-}
-Creating index lifecycle policy.
-{
-  "acknowledged" : true
-}
-Creating index template mapping.
-{
-  "acknowledged" : true
-}
+bin/kibana_setup.sh <KIBANA_HOST>:<PORT> lib/examples/elasticsearch_setup/kibana_setup.json
 ```
+
+Ensure that both Elasticsearch and Kibana return success.
 
 ---
 
@@ -114,7 +105,7 @@ Creating index template mapping.
 Optimus can be run with a few different options.  The following example would be very common. This will run once on interface eth0 for 1000 packets, injecting to Elasticsearch node 192.168.0.10:9200, saving 1024 bytes of the payload, and processing layer 7 information such as protocol and HTTP headers.
 ```
 cd bin
-./optimus.pl -i eth0 -c 1000 --server 192.168.0.10:9200 --bytes 1024 --l7
+./optimus.pl -i eth0 -c 1000 --server <ELASTICSEARCH_HOST>:<PORT> --bytes 1024 --l7
 ```
 
 If you wish to collect samples continuously modify the script run.sh and add the necessary command line switches to the script.  Then execute.
@@ -141,7 +132,7 @@ Run your continer as follows.  Populate the "OPTIMUS_ARGS" environment variable 
 > **Note** If you wish to listen to a parent interface this will only work on Linux.  The --net=host functionality does not provide access to the physical interfaces of Windows or MacOs.
 
 ```
-docker run -d --rm -p 8000:8000 -p 4430:4430 --net=host -e OPTIMUS_ARGS='-i eth1 -c 5000 --server 192.168.0.10:9200 --bytes 1024 --l7' --name=optimus_eth1 optimus
+docker run -d --rm -p 8000:8000 -p 4430:4430 --net=host -e OPTIMUS_ARGS='-i eth1 -c 5000 --server <ELASTICSEARCH_HOST>:<PORT> --bytes 1024 --l7' --name=optimus_eth1 optimus
 ```
 
 ---
