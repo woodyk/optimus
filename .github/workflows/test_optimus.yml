@@ -30,11 +30,28 @@ jobs:
           sudo /etc/init.d/apache2 start
           sudo /etc/init.d/apache2 stop
 
+      - name: Install and Run Elasticsearch
+        run: |
+          cd /opt
+          wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.5.2-linux-x86_64.tar.gz
+          tar -zxvf elasticsearch-8.5.2-linux-x86_64.tar.gz
+          adduser --disabled-password --gecos "" elastic
+          chown -R elastic.elastic elasticsearch*
+          cd /opt/elasticsearch-8.5.2
+          echo "xpack.security.enabled: false" >> config/elasticsearch.yml
+          su elastic -c "ES_PATH_CONF=/opt/elasticsearch-8.5.2/config bin/elasticsearch -d -p pid"
+
+      - name: Test Elasticsearch Setup
+        run: |
+          cd /home/runner/work/optimus/optimus/bin
+          ./elasticsearch_setup.sh localhost:9200
+
       - name: Test Optimus Execution
         run: |
           cd /home/runner/work/optimus/optimus/bin
           perl -wc ./optimus.pl
           sudo ./optimus.pl -p ../lib/examples/test.pcap -c 25 --bytes 1024 -g --l7 -j 
+          sudo ./optimus.pl -p ../lib/examples/test.pcap -c 25 --bytes 1024 --l7 -d
 
       - name: Test Optimus API
         run: |
