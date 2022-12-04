@@ -33,13 +33,13 @@ jobs:
       - name: Install and Run Elasticsearch
         run: |
           cd /opt
-          wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.5.2-linux-x86_64.tar.gz
-          tar -zxvf elasticsearch-8.5.2-linux-x86_64.tar.gz
-          adduser --disabled-password --gecos "" elastic
-          chown -R elastic.elastic elasticsearch*
+          sudo wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.5.2-linux-x86_64.tar.gz
+          sudo tar -zxvf elasticsearch-8.5.2-linux-x86_64.tar.gz
+          sudo adduser --disabled-password --gecos "" elastic
+          sudo chown -R elastic.elastic elasticsearch*
           cd /opt/elasticsearch-8.5.2
-          echo "xpack.security.enabled: false" >> config/elasticsearch.yml
-          su elastic -c "ES_PATH_CONF=/opt/elasticsearch-8.5.2/config bin/elasticsearch -d -p pid"
+          sudo echo "xpack.security.enabled: false" >> config/elasticsearch.yml
+          sudo su elastic -c "ES_PATH_CONF=/opt/elasticsearch-8.5.2/config bin/elasticsearch -d -p pid"
 
       - name: Test Elasticsearch Setup
         run: |
