@@ -89,13 +89,15 @@ if (defined($dummy)) {
 # Sanity checks for elasticsearch switches.
 if (defined($esNode)) {
 	if ($esNode !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}$/) {
-       		$message = "error: IP address not valid.\n";
-       		logIt($message);
-       		die $message;
+		my ($host, $port) = split(/:/, $esNode);
+
+		my $ip = inet_ntoa(inet_aton($host)) || die "Invalid hostname $host.";
+
+		$esNode = "$ip:$port";
 	}
 
 	if (defined($geoIp)) {
-		$message = "Disabling GeoIp.  Elastic search pipelines should be used for GeoIP recording.\n";
+		$message = "Disabling GeoIp.  Elasticsearch pipelines should be used for GeoIP recording.\n";
 		print "$message";
 		logIt($message);
 		undef($geoIp);
@@ -175,6 +177,7 @@ if (defined($pcapFile)) {
 #####################################
 capture($interface, $sample);
 output();
+exit;
 
 #####################################
 # Process our output 
@@ -292,6 +295,7 @@ sub output {
 	my $stopTime = time();
 	my $runTime = ($stopTime - $startTime);
 
+	debugIt("Processed $pktCounter total packets.\n");
 	debugIt("Finished output processing in $runTime seconds.\n");
 
 	return;
@@ -815,7 +819,7 @@ $0
 	--l7	Enable layer 7 data collection.
 	-p	Path to pcap file for reading.
 	-r	Enable reverse DNS lookup. (much slower)
-	-s	Elastic search server address with port. eg: 192.168.1.10:9200
+	-s	Elastic search server with port. eg: 192.168.1.10:9200
 	-t	Label name for your datasource.
 
 Examples:
