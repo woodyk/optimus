@@ -32,7 +32,9 @@ jobs:
 
       - name: Test Optimus API
         run: |
+          cd /optimus
           curl -F 'upload=@lib/examples/test.pcap' http://localhost:8000
+          sudo /etc/init.d/apache2 stop
 
       - name: Install and Run Elasticsearch
         run: |
@@ -56,20 +58,12 @@ jobs:
           sudo ./optimus.pl -p ../lib/examples/test.pcap -c 25 --bytes 1024 -g --l7 -j 
           sudo ./optimus.pl -p ../lib/examples/test.pcap -c 25 --bytes 1024 --server 127.0.0.1:9200 --l7 --debug
 
-      - name: Test Optimus API
-        run: |
-          cd /optimus/web
-          php -S localhost:8888 &
-          sleep 5
-          curl -F 'upload=@../lib/examples/test.pcap' http://localhost:8888
-
       - name: Test Docker Build
         run: |
           cd /optimus
           docker build -t optimus .
 
-      - name: Test Docker Image
+      - name: Test Docker Run 
         run: |
-          docker run -d --rm -p 8111:8000 -p 4431:4430 -e OPTIMUS_ARGS='--dummy' --name=optimus_api optimus
-          curl -v http://localhost:8111
+          docker run -d --rm -p 8000:8000 -p 4430:4430 -e OPTIMUS_ARGS='--dummy' --name=optimus_api optimus
 
