@@ -5,6 +5,11 @@ on:
     branches:
       - "main"
 
+defaults:
+  run:
+    shell: bash
+    working-directory: /
+
 jobs:
   test:
 
@@ -14,8 +19,8 @@ jobs:
     steps:
       - name: Check Out Optimus
         uses: actions/checkout@v3
-      - run: |
-          sudo mv /home/runner/work/optimus/optimus /
+#      - run: |
+#          sudo mv /home/runner/work/optimus/optimus /
 
       - name: Install Dependencies
         run: |
