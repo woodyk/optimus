@@ -74,8 +74,6 @@ sudo apt-get update
 sudo apt-get install -y gzip make curl gcc libpcap-dev net-tools libjson-perl libnet-pcap-perl libdata-dmp-perl libsys-hostname-long-perl libgetopt-long-descriptive-perl libuuid-tiny-perl libmaxmind-db-reader-perl libnet-ipaddress-perl libnetpacket-perl libuuid-tiny-perl libmaxmind-db-reader-perl libsearch-elasticsearch-perl
 ```
 
-```
-
 You can test that your modules are installed properly by running.
 ```
 perl -wc bin/optimus.pl
