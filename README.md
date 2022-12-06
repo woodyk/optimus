@@ -86,7 +86,7 @@ You can test that your modules are installed properly by running.
 perl -wc bin/optimus.pl
 ```
 
-It should return the folowing. If not please ensure that all the modules contained within file cpanfile are installed properly.
+> **Note** It should return the following. If not please ensure that all the modules contained within file cpanfile are installed properly.
 
 ```
 bin/optimus.pl syntax OK
@@ -113,7 +113,7 @@ Optionaly you can setup Kibana with some pre-made visualizations.
 bin/kibana_setup.sh localhost:5601 lib/examples/elasticsearch_setup/kibana_setup.json
 ```
 
-Ensure that both Elasticsearch and Kibana return success.
+> **Note** Ensure that both Elasticsearch and Kibana return success.
 
 
 After you are finished you can clean up with the following.
@@ -146,11 +146,13 @@ If you wish to collect samples continuously modify the script run.sh and add the
 #### Prepare Docker Image
 
 You can build the image yourself using the following.
+
 ```
 docker build -t optimus .
 ```
 
 Or you can pull the latest docker image from git packages.
+
 ```
 docker pull ghcr.io/woodyk/optimus
 ```
