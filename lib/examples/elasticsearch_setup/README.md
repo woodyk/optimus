@@ -1,6 +1,11 @@
+# Spin up Elasticsearch and Kibana in docker.
+
+## Elasticsearch
+
 docker run -d --rm --name elastic_optimus -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" -e "xpack.security.enabled=false" elasticsearch:8.5.2
 
-docker run -d --rm --name kibana_optimus -p 5601:5601 -e 'ELASTICSEARCH_HOSTS="http://dockermanager.vm.sr:9200"' kibana:8.5.2
+## Kibana
+docker run -d --rm --name kibana_optimus -p 5601:5601 -e 'ELASTICSEARCH_HOSTS="http://<IP_OF_PARENT>:9200"' kibana:8.5.2
 
 Allow time for both elasticsearch and kibana to init.
 Use docker logs <container name> to view status

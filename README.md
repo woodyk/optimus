@@ -66,11 +66,14 @@ Tools such as tshark proved to be more than I needed.  Optimus simplifies the ta
 git clone https://github.com/woodyk/optimus.git
 ```
 
-#### Install required modules.
+#### Install required packages.
 
+##### Ubuntu
 ```
-cd optimus
-cpanm -n --installdeps . --force
+sudo apt-get update
+sudo apt-get install -y gzip make curl gcc libpcap-dev net-tools libjson-perl libnet-pcap-perl libdata-dmp-perl libsys-hostname-long-perl libgetopt-long-descriptive-perl libuuid-tiny-perl libmaxmind-db-reader-perl libnet-ipaddress-perl libnetpacket-perl libuuid-tiny-perl libmaxmind-db-reader-perl libsearch-elasticsearch-perl
+```
+
 ```
 
 You can test that your modules are installed properly by running.
@@ -94,8 +97,13 @@ Optionaly you can setup Kibana with some pre-made visualizations.
 ```
 bin/kibana_setup.sh <KIBANA_HOST>:<PORT> lib/examples/elasticsearch_setup/kibana_setup.json
 ```
-
 Ensure that both Elasticsearch and Kibana return success.
+
+If you don't have Elasticsearch and Kibana you can spin up docker containers as follows.
+```
+docker run -d --rm --name elastic_optimus -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" -e "xpack.security.enabled=false" elasticsearch:8.5.2
+docker run -d --rm --name kibana_optimus -p 5601:5601 -e 'ELASTICSEARCH_HOSTS="http://<IP_OF_PARENT>:9200"' kibana:8.5.2
+```
 
 ---
 
