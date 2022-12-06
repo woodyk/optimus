@@ -64,6 +64,7 @@ Tools such as tshark proved to be more than I needed.  Optimus simplifies the ta
 
 ```
 git clone https://github.com/woodyk/optimus.git
+cd optimus
 ```
 
 #### Install required packages.
@@ -74,12 +75,19 @@ sudo apt-get update
 sudo apt-get install -y gzip make curl gcc libpcap-dev net-tools libjson-perl libnet-pcap-perl libdata-dmp-perl libsys-hostname-long-perl libgetopt-long-descriptive-perl libuuid-tiny-perl libmaxmind-db-reader-perl libnet-ipaddress-perl libnetpacket-perl libuuid-tiny-perl libmaxmind-db-reader-perl libsearch-elasticsearch-perl
 ```
 
+##### Manual
+```
+cpanm -n --installdeps . --force
+```
+
 You can test that your modules are installed properly by running.
+
 ```
 perl -wc bin/optimus.pl
 ```
 
 It should return the folowing. If not please ensure that all the modules contained within file cpanfile are installed properly.
+
 ```
 bin/optimus.pl syntax OK
 ```
@@ -87,17 +95,21 @@ bin/optimus.pl syntax OK
 #### Preparing Elasticsearch and Kibana
 
 Prepare Elasticsearch for your data.
+
 ```
 bin/elasticsearch_setup.sh <ELASTICSEARCH_HOST>:<PORT>
 ```
 
 Optionaly you can setup Kibana with some pre-made visualizations.
+
 ```
 bin/kibana_setup.sh <KIBANA_HOST>:<PORT> lib/examples/elasticsearch_setup/kibana_setup.json
 ```
+
 Ensure that both Elasticsearch and Kibana return success.
 
 If you don't have Elasticsearch and Kibana you can spin up docker containers as follows.
+
 ```
 docker run -d --rm --name elastic_optimus -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" -e "xpack.security.enabled=false" elasticsearch:8.5.2
 docker run -d --rm --name kibana_optimus -p 5601:5601 -e 'ELASTICSEARCH_HOSTS="http://<IP_OF_PARENT>:9200"' kibana:8.5.2
@@ -109,12 +121,14 @@ docker run -d --rm --name kibana_optimus -p 5601:5601 -e 'ELASTICSEARCH_HOSTS="h
 
 ### Command Line
 Optimus can be run with a few different options.  The following example would be very common. This will run once on interface eth0 for 1000 packets, injecting to Elasticsearch node 192.168.0.10:9200, saving 1024 bytes of the payload, and processing layer 7 information such as protocol and HTTP headers.
+
 ```
 cd bin
 ./optimus.pl -i eth0 -c 1000 --server <ELASTICSEARCH_HOST>:<PORT> --bytes 1024 --l7
 ```
 
 If you wish to collect samples continuously modify the script run.sh and add the necessary command line switches to the script.  Then execute.
+
 ```
 ./run.sh &
 ```
@@ -147,6 +161,7 @@ docker run -d --rm -p 8000:8000 -p 4430:4430 --net=host -e OPTIMUS_ARGS='-i eth1
 ### Web Server
 
 First you must configure a webserver that supports php.  Set the document root for your web server to optimus/web. For a quick setup you can use PHPs built-in webserver to serve the API.
+
 ```
 cd optimus/web
 php -S 0.0.0.0:8000
@@ -155,6 +170,7 @@ php -S 0.0.0.0:8000
 If you are using the docker deployment, it includes Apache and PHP pre-configured exposed on ports 8000 and 4430.
 
 You can deploy an API only docker container using the following.
+
 ```
 docker run -d --rm -p 8000:8000 -p 4430:4430 -e OPTIMUS_ARGS='--dummy' --name=optimus_api optimus
 ```
@@ -164,6 +180,7 @@ There are two ways the web API can be used.
 
 1. Use your browser to navigate to your server and upload pcaps manually. eg: http://localhost:8000
 2. Automate tasks by using HTTP POST to upload your pcap.
+
 ```
 curl -F 'upload=@/path/to/pcap' http://localhost:8000
 ```
