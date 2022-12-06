@@ -93,26 +93,35 @@ bin/optimus.pl syntax OK
 ```
 
 #### Preparing Elasticsearch and Kibana
+If you don't have Elasticsearch and Kibana you can spin up docker containers as follows.
+
+```
+docker network create elastic
+docker run -d --rm --net elastic --name elastic -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" -e "xpack.security.enabled=false" elasticsearch:8.5.2
+docker run -d --rm --net elastic --name kibana -p 5601:5601 -e 'ELASTICSEARCH_HOSTS="http://elastic:9200"' kibana:8.5.2
+```
 
 Prepare Elasticsearch for your data.
 
 ```
-bin/elasticsearch_setup.sh <ELASTICSEARCH_HOST>:<PORT>
+bin/elasticsearch_setup.sh localhost:9200
 ```
 
 Optionaly you can setup Kibana with some pre-made visualizations.
 
 ```
-bin/kibana_setup.sh <KIBANA_HOST>:<PORT> lib/examples/elasticsearch_setup/kibana_setup.json
+bin/kibana_setup.sh localhost:5601 lib/examples/elasticsearch_setup/kibana_setup.json
 ```
 
 Ensure that both Elasticsearch and Kibana return success.
 
-If you don't have Elasticsearch and Kibana you can spin up docker containers as follows.
+
+After you are finished you can clean up with the following.
 
 ```
-docker run -d --rm --name elastic_optimus -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" -e "xpack.security.enabled=false" elasticsearch:8.5.2
-docker run -d --rm --name kibana_optimus -p 5601:5601 -e 'ELASTICSEARCH_HOSTS="http://<IP_OF_PARENT>:9200"' kibana:8.5.2
+docker stop elastic
+docker stop kibana
+docker network rm elastic
 ```
 
 ---
@@ -120,11 +129,11 @@ docker run -d --rm --name kibana_optimus -p 5601:5601 -e 'ELASTICSEARCH_HOSTS="h
 ## Running Optimus
 
 ### Command Line
-Optimus can be run with a few different options.  The following example would be very common. This will run once on interface eth0 for 1000 packets, injecting to Elasticsearch node 192.168.0.10:9200, saving 1024 bytes of the payload, and processing layer 7 information such as protocol and HTTP headers.
+Optimus can be run with a few different options.  The following example would be very common. This will run once on interface eth0 for 1000 packets, injecting to Elasticsearch node localhost:9200, saving 1024 bytes of the payload, and processing layer 7 information such as protocol and HTTP headers.
 
 ```
 cd bin
-./optimus.pl -i eth0 -c 1000 --server <ELASTICSEARCH_HOST>:<PORT> --bytes 1024 --l7
+./optimus.pl -i eth0 -c 1000 --server localhost:9200 --bytes 1024 --l7
 ```
 
 If you wish to collect samples continuously modify the script run.sh and add the necessary command line switches to the script.  Then execute.
