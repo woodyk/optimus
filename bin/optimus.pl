@@ -12,6 +12,7 @@ use POSIX;
 use Socket;
 use Getopt::Long;
 use Net::Pcap;
+use File::Spec;
 use UUID::Tiny ':std';
 use Data::Dumper;
 use Sys::Hostname;
@@ -33,6 +34,13 @@ use IPC::Open3;
 $SIG{INT} = sub { die "Caught a sigint $!" };
 $SIG{TERM} = sub { die "Caught a sigterm $!" };
 $ENV{TZ} = 'UTC';
+
+# Set running directory
+my $absPath = File::Spec->rel2abs($0);
+my @path = split('/', $absPath);
+pop(@path);
+$absPath = join('/', @path);
+chdir($absPath);
 
 # Configurable options.
 my $ouiFile = '/tmp/wireshark_oui.txt';		# Location to store OUI data file.
