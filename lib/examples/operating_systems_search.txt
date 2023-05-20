@@ -1,0 +1,47 @@
+Linux
+ip.proto:tcp AND ip.len:60
+
+OpenBSD (Darwin)
+ip.proto:tcp AND ip.len:64 AND tcp.window_size:65535
+
+Linux 2.2
+ip.proto:tcp AND ip.len:64 AND tcp.window_size:32120
+
+Linux 2.4/2.6
+ip.proto:tcp AND ip.len:64 AND tcp.window_size:5840
+
+Linux 2.6/3.2
+ip.proto:tcp AND ip.len:64 AND tcp.window_size:14600
+
+Linux 3.2/4.4/Debian 4
+ip.proto:tcp AND ip.len:64 AND tcp.window_size:29200
+
+AIX
+ip.proto:tcp AND ip.len:44 AND tcp.window_size:16384
+
+Solaris
+ip.proto:tcp AND ip.len:44 AND ip.ttl:>234 AND tcp.window_size:8760
+
+Windows 2000
+ip.proto:tcp AND ip.len:48 AND tcp.window_size:16380
+
+Windows 98
+ip.proto:tcp AND ip.len:48 AND tcp.window_size:8192
+
+Windows 95
+ip.proto:tcp AND ip.len:44 AND ip.ttl:<33 AND tcp.window_size:8192
+
+Windows XP A
+ip.proto:tcp AND ip.len:48 AND tcp.window_size:64240
+
+Windows XP B
+ip.proto:tcp AND ip.ttl:>109 AND tcp.window_size:65535
+
+Windows Vista 7
+ip.proto:tcp AND ip.ttl:>64 AND tcp.window_size:8192
+
+Google Linux
+ip.proto:tcp AND ip.ttl:<65 AND tcp.window_size:5720
+
+Cisco IOS
+ip.proto:tcp AND ip.len:44 AND ip.ttl:>239 AND tcp.window_size:4128

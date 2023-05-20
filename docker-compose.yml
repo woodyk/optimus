@@ -1,0 +1,13 @@
+version: "3"
+services:
+  optimus:
+    build: .
+    container_name: optimus
+    hostname: optimus
+    #image: ghcr.io/woodyk/optimus
+    ports:
+      - "8000:8000"
+      - "4430:4430"
+    #network_mode: host
+    environment:
+      OPTIMUS_ARGS: "--dummy"

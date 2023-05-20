@@ -1,0 +1,18 @@
+{
+  "processors": [
+    {
+      "geoip": {
+        "field": "ip.dst",
+        "target_field": "geoip.dst",
+        "ignore_failure": true
+      }
+    },
+    {
+      "geoip": {
+        "field": "ip.src",
+        "target_field": "geoip.src",
+        "ignore_failure": true
+      }
+    }
+  ]
+}
