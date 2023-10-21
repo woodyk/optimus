@@ -159,3 +159,7 @@ lib/wireshark_oui.txt
 .VolumeIcon.icns
 .ql_disablecache
 .ql_disablethumbnails
+
+# Ignore word documents
+*.docx
+*.doc
