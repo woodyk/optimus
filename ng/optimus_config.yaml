@@ -1,0 +1,146 @@
+# optimus_config.yaml
+# Configuration file for Optimus Network Packet Analyzer
+
+# Basic settings
+interface: "eth0"
+datasource: "live"
+packet_count: 1000
+debug: false
+
+# Output settings
+output_json: false
+payload_bytes: 1024
+
+# Analysis features
+geoip_enabled: false
+l7_enabled: true
+behavioral_analysis: true
+threat_detection: true
+
+# Elasticsearch configuration
+elasticsearch:
+  enabled: false
+  host: "localhost:9200"
+  index_prefix: "packets_"
+  bulk_size: 100
+
+# GeoIP database path
+geoip_database: "../lib/GeoLite2-City.mmdb"
+
+# OUI data settings
+oui:
+  file_path: "/tmp/wireshark_oui.txt"
+  update_url: "https://gitlab.com/wireshark/wireshark/-/raw/master/manuf"
+  update_interval: 86400  # 24 hours
+
+# DNS analysis settings
+dns_analysis:
+  entropy_threshold: 4.5
+  suspicious_tlds:
+    - ".tk"
+    - ".ml"
+    - ".ga"
+    - ".cf"
+    - ".bit"
+    - ".onion"
+
+# Connection tracking
+connection_tracking:
+  max_connections: 10000
+  cleanup_interval: 3600  # 1 hour
+  anomaly_detection:
+    long_lived_threshold: 3600  # seconds
+    high_volume_threshold: 104857600  # 100MB
+
+# Behavioral analysis
+behavioral_analysis:
+  window_size: 1000
+  analysis_interval: 100
+  beacon_threshold: 0.001
+  high_frequency_threshold: 100
+
+# Threat detection rules
+threat_detection:
+  signatures:
+    malware_c2:
+      pattern: "(?:\\.bit|\\.onion)\\b.*(?:\\/[a-f0-9]{32}|\\/gate\\.php)"
+      severity: "high"
+      description: "Potential malware C2 communication"
+    
+    crypto_mining:
+      pattern: "stratum\\+tcp|mining\\.pool|getwork|submit"
+      severity: "medium"
+      description: "Cryptocurrency mining activity"
+    
+    data_exfiltration:
+      pattern: "(?:password|login|token|key)[:=]\\s*[\\w\\-]{8,}"
+      severity: "high"
+      description: "Potential data exfiltration"
+    
+    sql_injection:
+      pattern: "(?:union.*select|insert.*into|drop.*table)"
+      severity: "high"
+      description: "SQL injection attempt"
+    
+    xss_attempt:
+      pattern: "<script|javascript:|onload=|onerror="
+      severity: "medium"
+      description: "Cross-site scripting attempt"
+    
+    directory_traversal:
+      pattern: "\\.\\.\\/|\\.\\.\\\\|%2e%2e%2f"
+      severity: "medium"
+      description: "Directory traversal attempt"
+
+# Logging configuration
+logging:
+  level: "INFO"
+  file: "optimus.log"
+  max_size: "10MB"
+  backup_count: 5
+
+# Performance tuning
+performance:
+  worker_threads: 4
+  batch_size: 100
+  memory_limit: "1GB"
+  async_dns: true
+
+# Protocol-specific settings
+protocols:
+  http:
+    extract_headers: true
+    extract_urls: true
+    max_header_size: 8192
+  
+  tls:
+    extract_certificates: true
+    analyze_cipher_suites: true
+    detect_weak_crypto: true
+  
+  dns:
+    cache_size: 10000
+    detect_tunneling: true
+    detect_dga: true
+
+# Alert settings
+alerts:
+  enabled: false
+  webhook_url: ""
+  email:
+    smtp_server: ""
+    smtp_port: 587
+    username: ""
+    password: ""
+    recipients: []
+  
+  thresholds:
+    threat_score: 7
+    anomaly_score: 5
+    volume_threshold: 1000000  # bytes per minute
+
+# Plugin settings
+plugins:
+  enabled: true
+  directory: "plugins/"
+  auto_load: true

@@ -1,8 +1,9 @@
 #!/usr/bin/env perl
-# Optimus 
-# 
-# Author: Wadih Khairallah 
 #
+# File: optimus.pl
+# Author: Wadih Khairallah
+# Description: 
+# Created: 2025-06-03 01:59:21
 
 use strict;
 use warnings;
